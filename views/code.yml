@@ -48,10 +48,10 @@
     WHERE c.method = s.pattern AND c.language IN s.languages AND (size(s.receivers) = 0 OR c.receiver IN s.receivers)
     WITH c, s, c.arguments[0] AS first
     WHERE first STARTS WITH '"' OR first STARTS WITH "'" OR first STARTS WITH '`' OR first STARTS WITH "r'" OR first STARTS WITH 'r"' OR first STARTS WITH ':'
-    WITH c, s, first, [a IN tail(c.arguments) WHERE NOT a CONTAINS ': ' AND NOT a CONTAINS '=' AND NOT a STARTS WITH 'auth'] AS named
+    WITH c, s, first, [a IN tail(c.arguments) WHERE NOT a =~ '[A-Za-z_][A-Za-z0-9_]*\\s*(:|=)[^:=>].*'] AS named
     WITH c, s, first, CASE WHEN size(named) = 0 THEN c.enclosing ELSE named[size(named) - 1] END AS h
     RETURN s.role AS role, s.method AS method,
-           replace(replace(replace(replace(CASE WHEN first STARTS WITH 'r' THEN substring(first, 1) WHEN first STARTS WITH ':' THEN substring(first, 1) ELSE first END, '"', ''), "'", ''), '`', ''), ':', '') AS path,
+           replace(replace(replace(CASE WHEN first STARTS WITH 'r' OR first STARTS WITH ':' THEN substring(first, 1) ELSE first END, '"', ''), "'", ''), '`', '') AS path,
            s.framework AS framework, c.language AS language,
            CASE WHEN size(h) > 60 THEN '(inline) ' + substring(h, 0, 48) + '…' ELSE h END AS handler,
            c.receiver + '.' + c.method + '(…)' AS declaredAs, toLower(c.path) CONTAINS 'test' AS test, c.path AS file, c.line AS line, c.url AS url

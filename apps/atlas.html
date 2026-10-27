@@ -123,10 +123,10 @@ MATCH (s:RouteStyle {shape: &#x27;call&#x27;})
 WHERE c.method = s.pattern AND c.language IN s.languages AND (size(s.receivers) = 0 OR c.receiver IN s.receivers)
 WITH c, s, c.arguments[0] AS first
 WHERE first STARTS WITH &#x27;&quot;&#x27; OR first STARTS WITH &quot;&#x27;&quot; OR first STARTS WITH &#x27;`&#x27; OR first STARTS WITH &quot;r&#x27;&quot; OR first STARTS WITH &#x27;r&quot;&#x27; OR first STARTS WITH &#x27;:&#x27;
-WITH c, s, first, [a IN tail(c.arguments) WHERE NOT a CONTAINS &#x27;: &#x27; AND NOT a CONTAINS &#x27;=&#x27; AND NOT a STARTS WITH &#x27;auth&#x27;] AS named
+WITH c, s, first, [a IN tail(c.arguments) WHERE NOT a =~ &#x27;[A-Za-z_][A-Za-z0-9_]*\\s*(:|=)[^:=&gt;].*&#x27;] AS named
 WITH c, s, first, CASE WHEN size(named) = 0 THEN c.enclosing ELSE named[size(named) - 1] END AS h
 RETURN s.role AS role, s.method AS method,
-       replace(replace(replace(replace(CASE WHEN first STARTS WITH &#x27;r&#x27; THEN substring(first, 1) WHEN first STARTS WITH &#x27;:&#x27; THEN substring(first, 1) ELSE first END, &#x27;&quot;&#x27;, &#x27;&#x27;), &quot;&#x27;&quot;, &#x27;&#x27;), &#x27;`&#x27;, &#x27;&#x27;), &#x27;:&#x27;, &#x27;&#x27;) AS path,
+       replace(replace(replace(CASE WHEN first STARTS WITH &#x27;r&#x27; OR first STARTS WITH &#x27;:&#x27; THEN substring(first, 1) ELSE first END, &#x27;&quot;&#x27;, &#x27;&#x27;), &quot;&#x27;&quot;, &#x27;&#x27;), &#x27;`&#x27;, &#x27;&#x27;) AS path,
        s.framework AS framework, c.language AS language,
        CASE WHEN size(h) &gt; 60 THEN &#x27;(inline) &#x27; + substring(h, 0, 48) + &#x27;…&#x27; ELSE h END AS handler,
        c.receiver + &#x27;.&#x27; + c.method + &#x27;(…)&#x27; AS declaredAs, toLower(c.path) CONTAINS &#x27;test&#x27; AS test, c.path AS file, c.line AS line, c.url AS url
