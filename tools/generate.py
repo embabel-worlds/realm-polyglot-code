@@ -31,7 +31,7 @@ KINDS = [
     ("Import", "imports", "IMPORTS", "SourceImport", {},
      "An import in a {prose} file: what it imports from (`imported`), the names it brings in, and its alias."),
     ("Call", "calls", "CALLS", "CallSite", {},
-     "A call in a {prose} file: the called name, what it is called on, its arguments and the function it is in. Matched by NAME only (`resolution: name`): say \"calls something named X\", never that it calls a particular X."),
+     "A call in a {prose} file: the called name, what it is called on, its arguments and the function it is in. Matched by NAME only (`resolution: name`): say 'calls something named X', never that it calls a particular X."),
 ]
 
 def producer_name(lang, emit):

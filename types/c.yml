@@ -51,7 +51,7 @@
   parents: [CallSite]
   visibility: internal
   userAnchor: false
-  description: "A call in a C file: the called name, what it is called on, its arguments and the function it is in. Matched by NAME only (`resolution: name`): say "calls something named X", never that it calls a particular X. Reach it from (:CodeProject {key})-[:CALLS]->; name the parent (CallSite) to read every language at once."
+  description: "A call in a C file: the called name, what it is called on, its arguments and the function it is in. Matched by NAME only (`resolution: name`): say 'calls something named X', never that it calls a particular X. Reach it from (:CodeProject {key})-[:CALLS]->; name the parent (CallSite) to read every language at once."
   virtualJoins:
     - { anchorLabel: CodeProject, relationship: CALLS, keyField: key, recordKeyField: anchorKey, producer: cCalls, maxFanoutTotal: 200000,
         description: "(:CodeProject {key:$project})-[:CALLS]->(x:CCall)" }
