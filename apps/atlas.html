@@ -104,7 +104,7 @@ RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines, sum(coa
 UNION ALL
 MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaCodeType)
 RETURN &#x27;java&#x27; AS language, count(DISTINCT t.path) AS files, null AS lines, 0 AS syntaxErrors</pre></details>
-  <details><summary><b>Routes</b> — Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the handler and the line. Also the paths routes sit under (role prefix), whole REST resources (role resource) and calls the code makes to other services (role client). Matched by the route styles in reference data (RouteStyle); a framework missing there is a row to add, not code to write.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+  <details><summary><b>Routes</b> — Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the handler and the line (`test` marks one declared in a test file). Also the paths routes sit under (role prefix), whole REST resources (role resource) and calls the code makes to other services (role client). Matched by the route styles in reference data (RouteStyle); a framework missing there is a row to add, not code to write.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
 WHERE size(d.annotationText) &gt; 0
 MATCH (s:RouteStyle {shape: &#x27;annotation&#x27;})
 WHERE d.language IN s.languages
@@ -115,7 +115,7 @@ RETURN s.role AS role, s.method AS method,
        CASE WHEN a CONTAINS &#x27;&quot;&#x27; THEN split(a, &#x27;&quot;&#x27;)[1] WHEN a CONTAINS &quot;&#x27;&quot; THEN split(a, &quot;&#x27;&quot;)[1] ELSE &#x27;&#x27; END AS path,
        s.framework AS framework, d.language AS language,
        CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS handler,
-       a AS declaredAs, d.path AS file, d.fromLine AS line, d.url AS url
+       a AS declaredAs, toLower(d.path) CONTAINS &#x27;test&#x27; AS test, d.path AS file, d.fromLine AS line, d.url AS url
 UNION ALL
 MATCH (p:CodeProject {key: $project})-[:CALLS]-&gt;(c:CallSite)
 WHERE size(c.arguments) &gt; 0
@@ -126,9 +126,9 @@ WHERE first STARTS WITH &#x27;&quot;&#x27; OR first STARTS WITH &quot;&#x27;&quo
 RETURN s.role AS role, s.method AS method,
        replace(replace(replace(CASE WHEN first STARTS WITH &#x27;r&#x27; THEN substring(first, 1) ELSE first END, &#x27;&quot;&#x27;, &#x27;&#x27;), &quot;&#x27;&quot;, &#x27;&#x27;), &#x27;`&#x27;, &#x27;&#x27;) AS path,
        s.framework AS framework, c.language AS language,
-       CASE WHEN size(c.arguments) &gt; 1 THEN c.arguments[1] ELSE c.enclosing END AS handler,
-       c.receiver + &#x27;.&#x27; + c.method + &#x27;(…)&#x27; AS declaredAs, c.path AS file, c.line AS line, c.url AS url
-ORDER BY role, path, method</pre></details>
+       CASE WHEN size(c.arguments) &lt; 2 THEN c.enclosing WHEN size(c.arguments[1]) &gt; 60 THEN &#x27;(inline) &#x27; + substring(c.arguments[1], 0, 48) + &#x27;…&#x27; ELSE c.arguments[1] END AS handler,
+       c.receiver + &#x27;.&#x27; + c.method + &#x27;(…)&#x27; AS declaredAs, toLower(c.path) CONTAINS &#x27;test&#x27; AS test, c.path AS file, c.line AS line, c.url AS url
+ORDER BY role, test, path, method</pre></details>
   <details><summary><b>SharedNames</b> — Names declared in more than one language of the same project — the vocabulary a backend and its frontend share (an Item model in Python and an Item interface in TypeScript), or code ported from one language to another. Types, functions and methods only.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
 WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;type&#x27;, &#x27;protocol&#x27;, &#x27;function&#x27;, &#x27;method&#x27;, &#x27;object&#x27;]
   AND size(d.name) &gt; 3
@@ -291,7 +291,7 @@ ORDER BY file, line LIMIT 1000</pre></details>
       var rows = langs.filter(function (r) { return r.files > 0; }).sort(function (a, b) { return (b.lines || b.files) - (a.lines || a.files); });
       var files = rows.reduce(function (s, r) { return s + r.files; }, 0), lines = rows.reduce(function (s, r) { return s + (r.lines || 0); }, 0);
       var errs = rows.reduce(function (s, r) { return s + (r.syntaxErrors || 0); }, 0);
-      var routes = Array.isArray(d.routes) ? d.routes.filter(function (r) { return r.role === 'route' || r.role === 'resource'; }).length : '…';
+      var routes = Array.isArray(d.routes) ? d.routes.filter(function (r) { return (r.role === 'route' || r.role === 'resource') && !r.test; }).length : '…';
       html += '<div class="card"><div class="stats">' +
         stat('Languages', rows.length) + stat('Source files', files) + stat('Lines', lines ? lines.toLocaleString() : '…') + stat('Endpoints', routes) +
         stat('Shared names', Array.isArray(d.shared) ? d.shared.length : '…') + '</div>' +
@@ -314,8 +314,8 @@ ORDER BY file, line LIMIT 1000</pre></details>
     var t = state.tab, wait = t !== 'search' && pending(t); if (wait) return wait;
     var d = state.data[t];
     if (t === 'routes') {
-      var order = { route: 0, resource: 1, prefix: 2, client: 3 }, roles = { route: 'Endpoints it serves', resource: 'REST resources', prefix: 'Paths its routes sit under', client: 'Calls it makes to other services' };
-      var groups = {}; d.forEach(function (r) { (groups[r.role] = groups[r.role] || []).push(r); });
+      var order = { route: 0, resource: 1, prefix: 2, client: 3, test: 4 }, roles = { route: 'Endpoints it serves', resource: 'REST resources', prefix: 'Paths its routes sit under', client: 'Calls it makes to other services', test: 'Endpoints its tests declare' };
+      var groups = {}; d.forEach(function (r) { var k = r.test && r.role === 'route' ? 'test' : r.role; (groups[k] = groups[k] || []).push(r); });
       var keys = Object.keys(groups).sort(function (a, b) { return order[a] - order[b]; });
       if (!keys.length) return '<div class="empty">No endpoint in a framework the route styles know. If this project serves HTTP another way, a route style row teaches the atlas.</div>';
       return keys.map(function (k) {
@@ -368,8 +368,8 @@ ORDER BY file, line LIMIT 1000</pre></details>
         REALWORLD.map(function (s, i) {
           var r = results[i];
           var body = r == null ? '<div class="sub">Reading…</div>' : r.error ? '<div class="note err">' + esc(r.error) + '</div>'
-            : r.filter(function (x) { return x.role !== 'client'; }).map(function (x) { return '<div class="r">' + method(x.method) + '<span class="p" title="' + esc(x.handler) + '">' + esc(x.path || '(none)') + '</span></div>'; }).join('') || '<div class="sub">None found</div>';
-          var n = Array.isArray(r) ? r.filter(function (x) { return x.role === 'route' || x.role === 'resource'; }).length : '';
+            : r.filter(function (x) { return x.role !== 'client' && !x.test; }).map(function (x) { return '<div class="r">' + method(x.method) + '<span class="p" title="' + esc(x.handler) + '">' + esc(x.path || '(none)') + '</span></div>'; }).join('') || '<div class="sub">None found</div>';
+          var n = Array.isArray(r) ? r.filter(function (x) { return (x.role === 'route' || x.role === 'resource') && !x.test; }).length : '';
           return '<div class="card"><h3><span>' + esc(s.name) + ' <span class="sub">' + esc(s.fw) + '</span></span><span class="sub">' + n + '</span></h3>' + body +
             '<div style="margin-top:8px"><a href="#project=' + encodeURIComponent(s.key) + '">Open the full map →</a></div></div>';
         }).join('') + '</div>';

@@ -20,7 +20,7 @@
     Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin
     mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and
     Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the
-    handler and the line. Also the paths routes sit under (role prefix), whole REST resources (role
+    handler and the line (`test` marks one declared in a test file). Also the paths routes sit under (role prefix), whole REST resources (role
     resource) and calls the code makes to other services (role client). Matched by the route styles
     in reference data (RouteStyle); a framework missing there is a row to add, not code to write.
   params:
@@ -37,7 +37,7 @@
            CASE WHEN a CONTAINS '"' THEN split(a, '"')[1] WHEN a CONTAINS "'" THEN split(a, "'")[1] ELSE '' END AS path,
            s.framework AS framework, d.language AS language,
            CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS handler,
-           a AS declaredAs, d.path AS file, d.fromLine AS line, d.url AS url
+           a AS declaredAs, toLower(d.path) CONTAINS 'test' AS test, d.path AS file, d.fromLine AS line, d.url AS url
     UNION ALL
     MATCH (p:CodeProject {key: $project})-[:CALLS]->(c:CallSite)
     WHERE size(c.arguments) > 0
@@ -48,9 +48,9 @@
     RETURN s.role AS role, s.method AS method,
            replace(replace(replace(CASE WHEN first STARTS WITH 'r' THEN substring(first, 1) ELSE first END, '"', ''), "'", ''), '`', '') AS path,
            s.framework AS framework, c.language AS language,
-           CASE WHEN size(c.arguments) > 1 THEN c.arguments[1] ELSE c.enclosing END AS handler,
-           c.receiver + '.' + c.method + '(…)' AS declaredAs, c.path AS file, c.line AS line, c.url AS url
-    ORDER BY role, path, method
+           CASE WHEN size(c.arguments) < 2 THEN c.enclosing WHEN size(c.arguments[1]) > 60 THEN '(inline) ' + substring(c.arguments[1], 0, 48) + '…' ELSE c.arguments[1] END AS handler,
+           c.receiver + '.' + c.method + '(…)' AS declaredAs, toLower(c.path) CONTAINS 'test' AS test, c.path AS file, c.line AS line, c.url AS url
+    ORDER BY role, test, path, method
 
 - name: WhereDefined
   description: >-
