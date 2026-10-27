@@ -1,0 +1,148 @@
+# HOW EACH FRAMEWORK DECLARES A ROUTE, as data. The Routes view joins these to any project's
+# declarations (their annotations, decorators or attributes, as written) and calls (a router's method
+# with a path as its first argument), so one query lists the endpoints of a project in any language
+# — and adding a framework is adding rows here.
+#
+#   shape: annotation  pattern = a lower-case piece of the annotation as written ("@getmapping", "[httpget",
+#                      "#[get(", ".get(" for a Python decorator); the path is its first quoted string.
+#          call        pattern = the called name, exact (Gin's GET, Express's get); receivers = what it may
+#                      be called on ([] any, [""] none); the path is the first argument, quoted or a symbol.
+#   method: the HTTP method, ANY when the declaration does not say, CLIENT for a call to someone else's API.
+#   role:   route (an endpoint this code serves), prefix (a path its routes sit under), resource (a whole
+#           REST resource: Rails `resources :articles`, DRF's router.register), client (a call it makes).
+#
+# Patterns are matched against what the source says, by name: a project with its own `get(...)` decorator
+# would be read as a route. Seeded on load, idempotent on styleId.
+
+- type: RouteStyle
+  data: { styleId: spring-get, framework: "Spring", languages: [java, kotlin], shape: annotation, pattern: "@getmapping", receivers: [], method: GET, role: route }
+- type: RouteStyle
+  data: { styleId: aspnet-get, framework: "ASP.NET Core", languages: [csharp], shape: annotation, pattern: "[httpget", receivers: [], method: GET, role: route }
+- type: RouteStyle
+  data: { styleId: nest-get, framework: "NestJS", languages: [typescript], shape: annotation, pattern: "@get(", receivers: [], method: GET, role: route }
+- type: RouteStyle
+  data: { styleId: rust-get, framework: "Rocket / Actix", languages: [rust], shape: annotation, pattern: "#[get(", receivers: [], method: GET, role: route }
+- type: RouteStyle
+  data: { styleId: python-get, framework: "FastAPI / Flask", languages: [python], shape: annotation, pattern: ".get(", receivers: [], method: GET, role: route }
+- type: RouteStyle
+  data: { styleId: express-get, framework: "Express", languages: [javascript, typescript], shape: call, pattern: "get", receivers: [router, app, api, server], method: GET, role: route }
+- type: RouteStyle
+  data: { styleId: gin-get, framework: "Gin / Echo", languages: [go], shape: call, pattern: "GET", receivers: [], method: GET, role: route }
+- type: RouteStyle
+  data: { styleId: laravel-get, framework: "Laravel", languages: [php], shape: call, pattern: "get", receivers: [Route], method: GET, role: route }
+- type: RouteStyle
+  data: { styleId: rails-get, framework: "Rails", languages: [ruby], shape: call, pattern: "get", receivers: [""], method: GET, role: route }
+- type: RouteStyle
+  data: { styleId: spring-post, framework: "Spring", languages: [java, kotlin], shape: annotation, pattern: "@postmapping", receivers: [], method: POST, role: route }
+- type: RouteStyle
+  data: { styleId: aspnet-post, framework: "ASP.NET Core", languages: [csharp], shape: annotation, pattern: "[httppost", receivers: [], method: POST, role: route }
+- type: RouteStyle
+  data: { styleId: nest-post, framework: "NestJS", languages: [typescript], shape: annotation, pattern: "@post(", receivers: [], method: POST, role: route }
+- type: RouteStyle
+  data: { styleId: rust-post, framework: "Rocket / Actix", languages: [rust], shape: annotation, pattern: "#[post(", receivers: [], method: POST, role: route }
+- type: RouteStyle
+  data: { styleId: python-post, framework: "FastAPI / Flask", languages: [python], shape: annotation, pattern: ".post(", receivers: [], method: POST, role: route }
+- type: RouteStyle
+  data: { styleId: express-post, framework: "Express", languages: [javascript, typescript], shape: call, pattern: "post", receivers: [router, app, api, server], method: POST, role: route }
+- type: RouteStyle
+  data: { styleId: gin-post, framework: "Gin / Echo", languages: [go], shape: call, pattern: "POST", receivers: [], method: POST, role: route }
+- type: RouteStyle
+  data: { styleId: laravel-post, framework: "Laravel", languages: [php], shape: call, pattern: "post", receivers: [Route], method: POST, role: route }
+- type: RouteStyle
+  data: { styleId: rails-post, framework: "Rails", languages: [ruby], shape: call, pattern: "post", receivers: [""], method: POST, role: route }
+- type: RouteStyle
+  data: { styleId: spring-put, framework: "Spring", languages: [java, kotlin], shape: annotation, pattern: "@putmapping", receivers: [], method: PUT, role: route }
+- type: RouteStyle
+  data: { styleId: aspnet-put, framework: "ASP.NET Core", languages: [csharp], shape: annotation, pattern: "[httpput", receivers: [], method: PUT, role: route }
+- type: RouteStyle
+  data: { styleId: nest-put, framework: "NestJS", languages: [typescript], shape: annotation, pattern: "@put(", receivers: [], method: PUT, role: route }
+- type: RouteStyle
+  data: { styleId: rust-put, framework: "Rocket / Actix", languages: [rust], shape: annotation, pattern: "#[put(", receivers: [], method: PUT, role: route }
+- type: RouteStyle
+  data: { styleId: python-put, framework: "FastAPI / Flask", languages: [python], shape: annotation, pattern: ".put(", receivers: [], method: PUT, role: route }
+- type: RouteStyle
+  data: { styleId: express-put, framework: "Express", languages: [javascript, typescript], shape: call, pattern: "put", receivers: [router, app, api, server], method: PUT, role: route }
+- type: RouteStyle
+  data: { styleId: gin-put, framework: "Gin / Echo", languages: [go], shape: call, pattern: "PUT", receivers: [], method: PUT, role: route }
+- type: RouteStyle
+  data: { styleId: laravel-put, framework: "Laravel", languages: [php], shape: call, pattern: "put", receivers: [Route], method: PUT, role: route }
+- type: RouteStyle
+  data: { styleId: rails-put, framework: "Rails", languages: [ruby], shape: call, pattern: "put", receivers: [""], method: PUT, role: route }
+- type: RouteStyle
+  data: { styleId: spring-delete, framework: "Spring", languages: [java, kotlin], shape: annotation, pattern: "@deletemapping", receivers: [], method: DELETE, role: route }
+- type: RouteStyle
+  data: { styleId: aspnet-delete, framework: "ASP.NET Core", languages: [csharp], shape: annotation, pattern: "[httpdelete", receivers: [], method: DELETE, role: route }
+- type: RouteStyle
+  data: { styleId: nest-delete, framework: "NestJS", languages: [typescript], shape: annotation, pattern: "@delete(", receivers: [], method: DELETE, role: route }
+- type: RouteStyle
+  data: { styleId: rust-delete, framework: "Rocket / Actix", languages: [rust], shape: annotation, pattern: "#[delete(", receivers: [], method: DELETE, role: route }
+- type: RouteStyle
+  data: { styleId: python-delete, framework: "FastAPI / Flask", languages: [python], shape: annotation, pattern: ".delete(", receivers: [], method: DELETE, role: route }
+- type: RouteStyle
+  data: { styleId: express-delete, framework: "Express", languages: [javascript, typescript], shape: call, pattern: "delete", receivers: [router, app, api, server], method: DELETE, role: route }
+- type: RouteStyle
+  data: { styleId: gin-delete, framework: "Gin / Echo", languages: [go], shape: call, pattern: "DELETE", receivers: [], method: DELETE, role: route }
+- type: RouteStyle
+  data: { styleId: laravel-delete, framework: "Laravel", languages: [php], shape: call, pattern: "delete", receivers: [Route], method: DELETE, role: route }
+- type: RouteStyle
+  data: { styleId: rails-delete, framework: "Rails", languages: [ruby], shape: call, pattern: "delete", receivers: [""], method: DELETE, role: route }
+- type: RouteStyle
+  data: { styleId: spring-patch, framework: "Spring", languages: [java, kotlin], shape: annotation, pattern: "@patchmapping", receivers: [], method: PATCH, role: route }
+- type: RouteStyle
+  data: { styleId: aspnet-patch, framework: "ASP.NET Core", languages: [csharp], shape: annotation, pattern: "[httppatch", receivers: [], method: PATCH, role: route }
+- type: RouteStyle
+  data: { styleId: nest-patch, framework: "NestJS", languages: [typescript], shape: annotation, pattern: "@patch(", receivers: [], method: PATCH, role: route }
+- type: RouteStyle
+  data: { styleId: rust-patch, framework: "Rocket / Actix", languages: [rust], shape: annotation, pattern: "#[patch(", receivers: [], method: PATCH, role: route }
+- type: RouteStyle
+  data: { styleId: python-patch, framework: "FastAPI / Flask", languages: [python], shape: annotation, pattern: ".patch(", receivers: [], method: PATCH, role: route }
+- type: RouteStyle
+  data: { styleId: express-patch, framework: "Express", languages: [javascript, typescript], shape: call, pattern: "patch", receivers: [router, app, api, server], method: PATCH, role: route }
+- type: RouteStyle
+  data: { styleId: gin-patch, framework: "Gin / Echo", languages: [go], shape: call, pattern: "PATCH", receivers: [], method: PATCH, role: route }
+- type: RouteStyle
+  data: { styleId: laravel-patch, framework: "Laravel", languages: [php], shape: call, pattern: "patch", receivers: [Route], method: PATCH, role: route }
+- type: RouteStyle
+  data: { styleId: rails-patch, framework: "Rails", languages: [ruby], shape: call, pattern: "patch", receivers: [""], method: PATCH, role: route }
+- type: RouteStyle
+  data: { styleId: spring-request, framework: "Spring", languages: [java, kotlin], shape: annotation, pattern: "@requestmapping", receivers: [], method: ANY, role: prefix }
+- type: RouteStyle
+  data: { styleId: aspnet-route, framework: "ASP.NET Core", languages: [csharp], shape: annotation, pattern: "[route(", receivers: [], method: ANY, role: prefix }
+- type: RouteStyle
+  data: { styleId: nest-controller, framework: "NestJS", languages: [typescript], shape: annotation, pattern: "@controller(", receivers: [], method: ANY, role: prefix }
+- type: RouteStyle
+  data: { styleId: flask-route, framework: "Flask", languages: [python], shape: annotation, pattern: ".route(", receivers: [], method: ANY, role: route }
+- type: RouteStyle
+  data: { styleId: symfony-route, framework: "Symfony", languages: [php], shape: annotation, pattern: "#[route(", receivers: [], method: ANY, role: route }
+- type: RouteStyle
+  data: { styleId: feign-client, framework: "Feign", languages: [java, kotlin], shape: annotation, pattern: "@requestline(", receivers: [], method: CLIENT, role: client }
+- type: RouteStyle
+  data: { styleId: django-path, framework: "Django", languages: [python], shape: call, pattern: "path", receivers: [""], method: ANY, role: route }
+- type: RouteStyle
+  data: { styleId: django-re-path, framework: "Django", languages: [python], shape: call, pattern: "re_path", receivers: [""], method: ANY, role: route }
+- type: RouteStyle
+  data: { styleId: django-url, framework: "Django", languages: [python], shape: call, pattern: "url", receivers: [""], method: ANY, role: route }
+- type: RouteStyle
+  data: { styleId: drf-register, framework: "Django REST framework", languages: [python], shape: call, pattern: "register", receivers: [router], method: ANY, role: resource }
+- type: RouteStyle
+  data: { styleId: rails-resources, framework: "Rails", languages: [ruby], shape: call, pattern: "resources", receivers: [""], method: ANY, role: resource }
+- type: RouteStyle
+  data: { styleId: rails-resource, framework: "Rails", languages: [ruby], shape: call, pattern: "resource", receivers: [""], method: ANY, role: resource }
+- type: RouteStyle
+  data: { styleId: express-route, framework: "Express", languages: [javascript, typescript], shape: call, pattern: "route", receivers: [router, app], method: ANY, role: route }
+- type: RouteStyle
+  data: { styleId: ktor-get, framework: "Ktor", languages: [kotlin], shape: call, pattern: "get", receivers: [""], method: GET, role: route }
+- type: RouteStyle
+  data: { styleId: ktor-post, framework: "Ktor", languages: [kotlin], shape: call, pattern: "post", receivers: [""], method: POST, role: route }
+- type: RouteStyle
+  data: { styleId: fetch-client, framework: "fetch", languages: [javascript, typescript], shape: call, pattern: "fetch", receivers: [""], method: CLIENT, role: client }
+- type: RouteStyle
+  data: { styleId: axios-get, framework: "axios / HttpClient", languages: [javascript, typescript], shape: call, pattern: "get", receivers: [axios, http, this.http, api, client, this.client], method: CLIENT, role: client }
+- type: RouteStyle
+  data: { styleId: axios-post, framework: "axios / HttpClient", languages: [javascript, typescript], shape: call, pattern: "post", receivers: [axios, http, this.http, api, client, this.client], method: CLIENT, role: client }
+- type: RouteStyle
+  data: { styleId: axios-put, framework: "axios / HttpClient", languages: [javascript, typescript], shape: call, pattern: "put", receivers: [axios, http, this.http, api, client, this.client], method: CLIENT, role: client }
+- type: RouteStyle
+  data: { styleId: axios-delete, framework: "axios / HttpClient", languages: [javascript, typescript], shape: call, pattern: "delete", receivers: [axios, http, this.http, api, client, this.client], method: CLIENT, role: client }
+- type: RouteStyle
+  data: { styleId: axios-patch, framework: "axios / HttpClient", languages: [javascript, typescript], shape: call, pattern: "patch", receivers: [axios, http, this.http, api, client, this.client], method: CLIENT, role: client }

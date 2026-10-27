@@ -1,0 +1,12 @@
+- name: RouteStyle
+  userAnchor: false
+  description: "How a web framework declares a route, as data (reference/route-styles.yml): an annotation, decorator or attribute whose text contains `pattern` (shape annotation), or a call named `pattern` on one of `receivers` with a path first (shape call), in one of `languages`. The Routes view joins these to a project's declarations and calls."
+  properties:
+    styleId: { identity: true, description: "The style." }
+    framework: "The framework or library, for display."
+    languages: { cardinality: LIST, description: "Languages it applies to, as the producers name them." }
+    shape: "annotation or call."
+    pattern: "annotation: a lower-case piece of the annotation as written; call: the called name, exact."
+    receivers: { cardinality: LIST, description: "call: what it may be called on; empty for anything, [\"\"] for nothing." }
+    method: "GET, POST, PUT, DELETE, PATCH, ANY, or CLIENT for a call to another service."
+    role: "route, prefix, resource or client."

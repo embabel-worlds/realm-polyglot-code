@@ -1,0 +1,78 @@
+# A PROJECT IN ANY LANGUAGE, read where it lives when a query reaches it. Nothing is stored.
+#
+#   MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]->(s:Source)             its files, every language
+#   (p)-[:DECLARES]->(d:SourceDeclaration)     types, functions, methods, fields, constants
+#   (p)-[:IMPORTS]->(i:SourceImport)           every import
+#   (p)-[:CALLS]->(c:CallSite)                 every call (matched by name, except Java's)
+#   (p)-[:DECLARES_TYPE]->(t:JavaCodeType)     Java's types, by binary name
+#
+# Name a parent (Source, SourceDeclaration, SourceImport, CallSite) to read every language at once;
+# name a child (PythonDeclaration, GoCall, JavaCodeMember) to read one. Thirteen languages are read
+# with tree-sitter (the `source-tree` kind); Java with a parser that resolves types (the `source`
+# kind), so Java's rows say more and its calls are not here.
+#
+# A key is a repository (`https://github.com/acme/shop@v2`, the default branch without `@ref`) or a
+# folder (under the world's data/, or in the owner's mounted workspace). Every row carries `project`
+# — the folder, or host/repo@commit — and `url`, the line on GitHub or GitLab.
+
+- name: CodeProject
+  visibility: internal
+  userAnchor: false
+  description: "A code project in any language, named by its key: a repository URL, optionally @ref (`https://github.com/acme/shop@v2`), or a folder (under the world's data/, or in the owner's mounted workspace). Pin it — (:CodeProject {key: $project}) — and every hop reads it when the query reaches it. Nothing about it is stored."
+  properties:
+    key: { identity: true, description: "The project key, exactly as given." }
+
+- name: JavaCodeType
+  parents: [CodeType]
+  visibility: internal
+  userAnchor: false
+  description: "A type a project declares in Java: class, interface, enum, record or annotation, by binary name, with resolved supertypes and annotations. Reach it from (:CodeProject {key})-[:DECLARES_TYPE]->. Its members are the JavaCodeMember rows whose `owner` is its `name`."
+  virtualJoins:
+    - { anchorLabel: CodeProject, relationship: DECLARES_TYPE, keyField: key, recordKeyField: anchorKey, producer: javaTypes, maxFanoutTotal: 200000,
+        description: "(:CodeProject {key:$project})-[:DECLARES_TYPE]->(t:JavaCodeType)" }
+  properties:
+    simpleName: "The name without package or enclosing type."
+    extends: { cardinality: LIST, description: "Supertype, resolved." }
+    implements: { cardinality: LIST, description: "Interfaces it implements, resolved." }
+    annotations: { cardinality: LIST, description: "Annotations on the type, resolved names." }
+    annotationText: { cardinality: LIST, description: "Each annotation as written." }
+    modifiers: { cardinality: LIST, description: "public, abstract, final, …" }
+    path: "Source file, relative to the project."
+    line: { type: int, description: "Line it is declared on." }
+    lastLine: { type: int, description: "Its last line." }
+    url: "The line on the repository's host, when it has one."
+    project: "The project as read: the folder, or host/repo@commit."
+
+- name: JavaCodeMember
+  parents: [SourceDeclaration]
+  visibility: internal
+  userAnchor: false
+  description: "A field, constructor or method a project declares in Java, with resolved annotation names and each annotation as written (`annotationText`). Reach it from (:CodeProject {key})-[:DECLARES]->, beside every other language's declarations."
+  virtualJoins:
+    - { anchorLabel: CodeProject, relationship: DECLARES, keyField: key, recordKeyField: anchorKey, producer: javaMembers, maxFanoutTotal: 200000,
+        description: "(:CodeProject {key:$project})-[:DECLARES]->(m:JavaCodeMember)" }
+  properties:
+    modifiers: { cardinality: LIST, description: "public, static, final, …" }
+    returnType: "A method's return type, resolved."
+    parameters: { cardinality: LIST, description: "Each parameter, type and name." }
+    type: "A field's type, resolved."
+    path: "Source file, relative to the project."
+    language: "java"
+    line: { type: int, description: "Line it is declared on." }
+    url: "The line on the repository's host, when it has one."
+    project: "The project as read: the folder, or host/repo@commit."
+
+- name: JavaCodeImport
+  parents: [SourceImport]
+  visibility: internal
+  userAnchor: false
+  description: "An import in a Java file: the package it imports from (`imported`) and the class it brings in (or `*`). Reach it from (:CodeProject {key})-[:IMPORTS]->."
+  virtualJoins:
+    - { anchorLabel: CodeProject, relationship: IMPORTS, keyField: key, recordKeyField: anchorKey, producer: javaImports, maxFanoutTotal: 200000,
+        description: "(:CodeProject {key:$project})-[:IMPORTS]->(i:JavaCodeImport)" }
+  properties:
+    name: "The import as written, without `import`."
+    path: "Source file, relative to the project."
+    language: "java"
+    url: "The line on the repository's host, when it has one."
+    project: "The project as read: the folder, or host/repo@commit."

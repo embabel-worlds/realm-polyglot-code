@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code Atlas</title>
+<meta name="description" content="Point it at any repository or folder, in any of fourteen languages, and see what it is written in, every HTTP endpoint it serves in any framework, where a name is defined and who calls it, what its languages share, what it really imports and where the complexity is — every answer linked to its line.">
+<link rel="stylesheet" href="/api/v1/apps-runtime/v1/theme.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%237c9cff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M8 6 2 12l6 6M16 6l6 6-6 6M14 4l-4 16'/%3E%3C/svg%3E">
+<script src="/api/v1/apps-runtime/v1/embabel.js"></script>
+<script type="application/embabel-app+json">
+{"version":1,"name":"code-atlas","requires":{"lenses":[],"views":["ProjectLanguages","Routes","SharedNames","ExternalDependencies","DocCoverage","LargestFunctions","WhereDefined","WhoCalls"],"realms":["realm-polyglot-code"],"namespaces":[]}}
+</script>
+<style>
+  :root{--bg:#0b0d12;--surface:#121620;--surface2:#171c28;--border:#232a38;--text:#e6e9f0;--dim:#8a94a6;
+        --accent:#7c9cff;--accent2:#a5b8ff;--green:#5fd38d;--red:#ef6b6b;--amber:#e3b341;--violet:#b18cff;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding-bottom:48px}
+  a{color:var(--accent2);text-decoration:none} a:hover{text-decoration:underline}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+  .wrap{max-width:1240px;margin:0 auto;padding:22px 20px}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  h1{font-size:20px;margin:0;font-weight:700} .sub{color:var(--dim);font-size:13px}
+  h2{font-size:16px;margin:22px 0 8px} h3{font-size:14px;margin:18px 0 6px}
+  .search{display:flex;gap:8px;margin:18px 0 8px;flex-wrap:wrap}
+  .search input{flex:1;min-width:260px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:11px 14px;font-size:14px}
+  .search input:focus{outline:none;border-color:var(--accent)}
+  button{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--dim)} button.primary{background:var(--accent);color:#0b0d12;border-color:var(--accent);font-weight:700}
+  .group{margin:4px 0 10px} .group .label{color:var(--dim);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap} .chips button{font-size:12px;padding:5px 10px;border-radius:999px;color:var(--dim)}
+  .chips button b{color:var(--text);font-weight:600}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin:10px 0}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .stat .k{color:var(--dim);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em} .stat .v{font-size:20px;font-weight:700}
+  .bar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:12px 0 8px;background:var(--surface2)}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12.5px;color:var(--dim)} .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;margin:16px 0 10px;border-bottom:1px solid var(--border)}
+  .tabs button{border:none;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--dim);padding:8px 12px}
+  .tabs button.on{color:var(--text);border-bottom-color:var(--accent)} .tabs .n{color:var(--dim);font-size:11.5px;margin-left:4px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;padding:6px 8px;border-bottom:1px solid var(--border)}
+  td{padding:6px 8px;border-bottom:1px solid #1a202b;vertical-align:top} tr:hover td{background:#141a25}
+  .tbl{overflow-x:auto}
+  .m{display:inline-block;min-width:54px;text-align:center;border-radius:5px;padding:1px 6px;font-size:11px;font-weight:700;font-family:ui-monospace,Menlo,monospace}
+  .m-GET{background:#14324a;color:#7cc4ff} .m-POST{background:#173a22;color:var(--green)} .m-PUT{background:#3a3010;color:var(--amber)}
+  .m-DELETE{background:#3a1717;color:var(--red)} .m-PATCH{background:#2d2140;color:var(--violet)} .m-ANY,.m-CLIENT{background:#222a38;color:var(--dim)}
+  .lang{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11.5px;font-weight:600;color:#0b0d12}
+  .empty{color:var(--dim);padding:18px;text-align:center}
+  .note{border-left:3px solid var(--accent);background:var(--surface2);padding:8px 12px;border-radius:6px;color:var(--dim);font-size:13px;margin:8px 0}
+  .note.warn{border-color:var(--amber)} .note.err{border-color:var(--red);color:var(--text)}
+  .progress{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin:6px 0 14px}
+  .progress.hide{display:none} .pbar{height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin:8px 0}
+  .pbar div{height:100%;background:var(--accent);transition:width .4s}
+  .step{display:flex;gap:10px;font-size:12.5px;color:var(--dim);padding:2px 0} .step .s{width:16px;text-align:center}
+  .step.run{color:var(--text)} .step.done .s{color:var(--green)} .step.fail .s{color:var(--red)}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 12px}
+  .row input,.row select{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 10px;font-size:13px}
+  .compare{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .compare .card{margin:0} .compare h3{margin:0 0 6px;display:flex;justify-content:space-between;align-items:baseline}
+  .compare .r{font-size:12.5px;padding:2px 0;display:flex;gap:6px} .compare .r span.p{font-family:ui-monospace,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  details{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin:6px 0}
+  summary{cursor:pointer} pre{white-space:pre-wrap;color:var(--dim);margin:8px 0 0}
+  #how-it-works{display:none;max-width:1240px;margin:0 auto;padding:0 20px} #how-it-works:target{display:block}
+  footer{color:var(--dim);font-size:12px;text-align:center;margin-top:28px}
+  @media (max-width:640px){.wrap{padding:16px}.search input{min-width:0}}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="#7c9cff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M8 6 2 12l6 6M16 6l6 6-6 6M14 4l-4 16"/></svg>
+      <div><h1>Code Atlas</h1><div class="sub">Any codebase, fourteen languages, one map — read live from the repository or your workspace. Nothing is uploaded or stored.</div></div>
+    </header>
+    <form class="search" id="form">
+      <input id="project" placeholder="https://github.com/owner/repo  ·  @tag or @branch optional  ·  or a folder in your workspace" autocomplete="off" spellcheck="false">
+      <button class="primary" type="submit">Map it</button>
+    </form>
+    <div class="group"><div class="label">The same API in ten languages — RealWorld</div><div class="chips" id="realworld"></div></div>
+    <div class="group"><div class="label">Where languages meet</div><div class="chips" id="fullstack"></div></div>
+    <div class="row"><button id="compare">Compare the RealWorld implementations’ endpoints side by side</button></div>
+    <div class="progress hide" id="progress"></div>
+    <div id="main"></div>
+  </div>
+
+<section id="how-it-works">
+  <h2>How it works</h2>
+  <h3>Reading the code</h3>
+  <p>Nothing about your project is uploaded or kept. When you map it, the appliance reads it where it lives: a repository at the commit its
+  branch or tag points to now (fetched once without history, then kept by commit — a commit never changes), or a folder in the workspace the
+  appliance owner mounted, read afresh each time. TypeScript, JavaScript, Python, Go, Rust, C, C++, C#, Ruby, PHP, Kotlin, Scala and Swift are
+  parsed with tree-sitter, tolerant of code that does not compile; Java with a parser that resolves names through the file's imports.
+  Each file is bounded in size and parse time, and one that is skipped is reported.</p>
+  <h3>One model for every language</h3>
+  <p>Every language's files, declarations, imports and calls are children of the same parents — Source, SourceDeclaration, SourceImport,
+  CallSite — so each view below is one query over all of them. Endpoints come from route styles kept as data (how each framework declares a
+  route), not code: a framework the atlas does not know is a row to add.</p>
+  <h3>Honest about calls</h3>
+  <p>Syntax names a call's target but cannot say which function it is. Outside Java a call is matched by name, and every call row says so
+  (resolution: name). "Who calls save" lists every call to something called save.</p>
+  <h3>Every view, with the Cypher that runs</h3>
+  <details><summary><b>ProjectLanguages</b> — What a project is written in: files, lines and syntax errors per language (Java&#x27;s files counted by the types they declare). The first question to ask of an unfamiliar repository.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]-&gt;(s:Source)
+RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines, sum(coalesce(s.errors, 0)) AS syntaxErrors
+UNION ALL
+MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaCodeType)
+RETURN &#x27;java&#x27; AS language, count(DISTINCT t.path) AS files, null AS lines, 0 AS syntaxErrors</pre></details>
+  <details><summary><b>Routes</b> — Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the handler and the line. Also the paths routes sit under (role prefix), whole REST resources (role resource) and calls the code makes to other services (role client). Matched by the route styles in reference data (RouteStyle); a framework missing there is a row to add, not code to write.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+WHERE size(d.annotationText) &gt; 0
+MATCH (s:RouteStyle {shape: &#x27;annotation&#x27;})
+WHERE d.language IN s.languages
+WITH d, s, [t IN d.annotationText WHERE toLower(t) CONTAINS s.pattern] AS hits
+WHERE size(hits) &gt; 0
+WITH d, s, hits[0] AS a
+RETURN s.role AS role, s.method AS method,
+       CASE WHEN a CONTAINS &#x27;&quot;&#x27; THEN split(a, &#x27;&quot;&#x27;)[1] WHEN a CONTAINS &quot;&#x27;&quot; THEN split(a, &quot;&#x27;&quot;)[1] ELSE &#x27;&#x27; END AS path,
+       s.framework AS framework, d.language AS language,
+       CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS handler,
+       a AS declaredAs, d.path AS file, d.fromLine AS line, d.url AS url
+UNION ALL
+MATCH (p:CodeProject {key: $project})-[:CALLS]-&gt;(c:CallSite)
+WHERE size(c.arguments) &gt; 0
+MATCH (s:RouteStyle {shape: &#x27;call&#x27;})
+WHERE c.method = s.pattern AND c.language IN s.languages AND (size(s.receivers) = 0 OR c.receiver IN s.receivers)
+WITH c, s, c.arguments[0] AS first
+WHERE first STARTS WITH &#x27;&quot;&#x27; OR first STARTS WITH &quot;&#x27;&quot; OR first STARTS WITH &#x27;`&#x27; OR first STARTS WITH &quot;r&#x27;&quot; OR first STARTS WITH &#x27;r&quot;&#x27; OR first STARTS WITH &#x27;:&#x27;
+RETURN s.role AS role, s.method AS method,
+       replace(replace(replace(CASE WHEN first STARTS WITH &#x27;r&#x27; THEN substring(first, 1) ELSE first END, &#x27;&quot;&#x27;, &#x27;&#x27;), &quot;&#x27;&quot;, &#x27;&#x27;), &#x27;`&#x27;, &#x27;&#x27;) AS path,
+       s.framework AS framework, c.language AS language,
+       CASE WHEN size(c.arguments) &gt; 1 THEN c.arguments[1] ELSE c.enclosing END AS handler,
+       c.receiver + &#x27;.&#x27; + c.method + &#x27;(…)&#x27; AS declaredAs, c.path AS file, c.line AS line, c.url AS url
+ORDER BY role, path, method</pre></details>
+  <details><summary><b>SharedNames</b> — Names declared in more than one language of the same project — the vocabulary a backend and its frontend share (an Item model in Python and an Item interface in TypeScript), or code ported from one language to another. Types, functions and methods only.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;type&#x27;, &#x27;protocol&#x27;, &#x27;function&#x27;, &#x27;method&#x27;, &#x27;object&#x27;]
+  AND size(d.name) &gt; 3
+WITH d.name AS name, collect(DISTINCT d.language) AS languages, collect(DISTINCT d.language + &#x27; &#x27; + d.kind + &#x27; in &#x27; + d.path) AS where
+WHERE size(languages) &gt; 1
+RETURN name, languages, size(languages) AS languageCount, where
+ORDER BY languageCount DESC, name LIMIT 200</pre></details>
+  <details><summary><b>ExternalDependencies</b> — What a project imports from outside itself, per language: every module, package or header its files import that is not a relative path, with how many files import it. The dependencies that matter are the ones the code actually uses.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:IMPORTS]-&gt;(i:SourceImport)
+WHERE i.imported &lt;&gt; &#x27;&#x27; AND NOT i.imported STARTS WITH &#x27;.&#x27; AND NOT i.imported STARTS WITH &#x27;/&#x27;
+RETURN i.language AS language, i.imported AS imported, count(DISTINCT i.path) AS files
+ORDER BY files DESC, imported LIMIT 300</pre></details>
+  <details><summary><b>DocCoverage</b> — How much of a project is documented, per language and kind: declarations of types, functions and methods, and how many carry a doc comment or docstring.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;]
+WITH d.language AS language, d.kind AS kind, count(d) AS declared, sum(CASE WHEN coalesce(d.javadoc, &#x27;&#x27;) &lt;&gt; &#x27;&#x27; THEN 1 ELSE 0 END) AS documented
+RETURN language, kind, declared, documented, round(100.0 * documented / declared) AS percent
+ORDER BY language, declared DESC</pre></details>
+  <details><summary><b>LargestFunctions</b> — The longest functions and methods in a project, in every language — where complexity lives, and the first candidates to split.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+WHERE d.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;]
+RETURN d.language AS language, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name,
+       d.toLine - d.fromLine + 1 AS lines, d.signature AS signature, d.path AS file, d.fromLine AS line, d.url AS url
+ORDER BY lines DESC LIMIT 25</pre></details>
+  <details><summary><b>WhereDefined</b> — Where a name is declared, in every language: a class, function, method, field or constant called exactly this, with its kind, owner, signature, doc and line. Java&#x27;s types are matched by their simple name.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration {name: $name})
+RETURN d.language AS language, d.kind AS kind, d.owner AS owner, d.name AS name, d.signature AS signature,
+       d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url
+UNION ALL
+MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaCodeType {simpleName: $name})
+RETURN &#x27;java&#x27; AS language, t.kind AS kind, &#x27;&#x27; AS owner, t.name AS name, t.kind + &#x27; &#x27; + t.simpleName AS signature,
+       &#x27;&#x27; AS doc, t.path AS file, t.line AS line, t.url AS url</pre></details>
+  <details><summary><b>WhoCalls</b> — Every call to a name, in every language a project is written in tree-sitter reads, with what it is called on, its arguments and the function it is in. Calls are matched by NAME (resolution &#x27;name&#x27;): this is every call to something called that, not proof of which one — the receiver says more. Java calls are not listed here; its jar and source realms resolve them exactly.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:CALLS]-&gt;(c:CallSite {method: $name})
+RETURN c.language AS language, c.receiver AS receiver, c.method AS method, c.arguments AS arguments,
+       c.enclosing AS caller, c.resolution AS resolution, c.path AS file, c.line AS line, c.url AS url
+ORDER BY file, line LIMIT 1000</pre></details>
+  <h3>What an empty panel means</h3>
+  <p>The views read every file of the languages they cover, so an empty answer means none matched — no endpoint in a framework the route
+  styles know, no name shared across languages. A repository that could not be read says so instead.</p>
+</section>
+
+<footer>Free and open source (Apache-2.0) · <a href="#how-it-works">How it works</a> · Created with <a href="https://embabel.com" target="_blank" rel="noopener noreferrer">Embabel</a></footer>
+
+<script>
+(function () {
+  'use strict';
+  var REALWORLD = [
+    { key: 'https://github.com/gothinkster/golang-gin-realworld-example-app', name: 'Go', fw: 'Gin' },
+    { key: 'https://github.com/realworld-apps/aspnetcore-realworld-example-app', name: 'C#', fw: 'ASP.NET Core' },
+    { key: 'https://github.com/TatriX/realworld-rust-rocket', name: 'Rust', fw: 'Rocket' },
+    { key: 'https://github.com/gothinkster/spring-boot-realworld-example-app', name: 'Java', fw: 'Spring Boot' },
+    { key: 'https://github.com/gothinkster/kotlin-spring-realworld-example-app', name: 'Kotlin', fw: 'Spring' },
+    { key: 'https://github.com/gothinkster/django-realworld-example-app', name: 'Python', fw: 'Django' },
+    { key: 'https://github.com/gothinkster/rails-realworld-example-app', name: 'Ruby', fw: 'Rails' },
+    { key: 'https://github.com/gothinkster/laravel-realworld-example-app', name: 'PHP', fw: 'Laravel' },
+    { key: 'https://github.com/gothinkster/node-express-realworld-example-app', name: 'TypeScript', fw: 'Express' },
+    { key: 'https://github.com/lujakob/nestjs-realworld-example-app', name: 'TypeScript', fw: 'NestJS' }
+  ];
+  var FULLSTACK = [
+    { key: 'https://github.com/fastapi/full-stack-fastapi-template', name: 'FastAPI + React', fw: 'Python & TypeScript' },
+    { key: 'https://github.com/jhipster/jhipster-sample-app', name: 'JHipster', fw: 'Java & TypeScript' }
+  ];
+  var COLORS = { typescript: '#3178c6', javascript: '#e8d44d', python: '#4b8bbe', go: '#00add8', rust: '#dea584', c: '#a8b9cc', cpp: '#f34b7d',
+                 csharp: '#9b6ad6', ruby: '#e0484b', php: '#8892bf', kotlin: '#b47bff', scala: '#dc322f', swift: '#f05138', java: '#e5a03b' };
+  var NAMES = { typescript: 'TypeScript', javascript: 'JavaScript', python: 'Python', go: 'Go', rust: 'Rust', c: 'C', cpp: 'C++', csharp: 'C#',
+                ruby: 'Ruby', php: 'PHP', kotlin: 'Kotlin', scala: 'Scala', swift: 'Swift', java: 'Java' };
+  var state = { project: null, data: {}, tab: 'routes' };
+
+  function $(id) { return document.getElementById(id); }
+  function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function rowsOf(r) {
+    if (!r) return [];
+    if (Array.isArray(r)) return r;
+    if (Array.isArray(r.data)) return r.data;
+    if (Array.isArray(r.rows)) return r.rows;
+    if (r.data && Array.isArray(r.data.rows)) return r.data.rows;
+    return [];
+  }
+  /* These views read every file of the languages they cover, so "none matched" is an answer: empty. */
+  function view(name, params) {
+    return embabel.views.invoke(name, params || {}).then(rowsOf).catch(function (e) {
+      if (e && e.reason === 'FETCHED_NOT_MATCHED') return [];
+      throw e;
+    });
+  }
+  function lang(l) { return '<span class="lang" style="background:' + (COLORS[l] || '#8a94a6') + '">' + esc(NAMES[l] || l) + '</span>'; }
+  function method(m) { return '<span class="m m-' + esc(m) + '">' + esc(m) + '</span>'; }
+  function where(r) {
+    var label = esc(r.file) + (r.line ? ':' + r.line : '');
+    return r.url ? '<a class="mono" href="' + esc(r.url) + '" target="_blank" rel="noopener">' + label + '</a>' : '<span class="mono">' + label + '</span>';
+  }
+  function table(rows, cols) {
+    if (!rows.length) return '<div class="empty">Nothing found.</div>';
+    return '<div class="tbl"><table><tr>' + cols.map(function (c) { return '<th>' + esc(c[0]) + '</th>'; }).join('') + '</tr>' +
+      rows.map(function (r) { return '<tr>' + cols.map(function (c) { return '<td>' + c[1](r) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>';
+  }
+  function short(key) { return key.replace(/^https?:\/\/(www\.)?github\.com\//, ''); }
+
+  /* ── progress: what each step reads, and for how long ── */
+  var STEPS = [
+    ['languages', 'Reading the code', 50, function () { return /^https?:/.test(state.project)
+      ? 'Fetching ' + short(state.project) + ' at its latest commit and parsing every file in every language — a first read takes 10–60 s, then it is kept by commit'
+      : 'Reading ' + state.project + ' from your workspace and parsing every file'; }],
+    ['routes', 'Endpoints', 15, function () { return 'Matching every annotation, decorator and router call against the known route styles'; }],
+    ['shared', 'Shared names', 10, function () { return 'Comparing the names each language declares'; }],
+    ['deps', 'Dependencies', 10, function () { return 'Grouping every import that leaves the project'; }],
+    ['docs', 'Documentation', 7, function () { return 'Counting doc comments and docstrings'; }],
+    ['largest', 'Complexity', 8, function () { return 'Measuring every function and method'; }]
+  ];
+  var prog = {};
+  function steps(list) {
+    prog = { list: list }; list.forEach(function (s) { prog[s[0]] = { state: 'wait', start: null, end: null, note: '' }; });
+    $('progress').className = 'progress'; drawProgress();
+  }
+  function mark(id, cls, note) {
+    var p = prog[id]; if (!p) return;
+    if (cls === 'run' && !p.start) p.start = Date.now();
+    if (cls === 'done' || cls === 'fail') { p.end = Date.now(); if (!p.start) p.start = p.end; }
+    p.state = cls; if (note) p.note = note; drawProgress();
+  }
+  function drawProgress() {
+    var list = prog.list || [], total = 0, done = 0;
+    list.forEach(function (s) { total += s[2]; if (prog[s[0]].state === 'done' || prog[s[0]].state === 'fail') done += s[2]; });
+    var pct = total ? Math.round(100 * done / total) : 0, now = Date.now();
+    $('progress').innerHTML = '<div style="display:flex;justify-content:space-between"><b>Mapping ' + esc(short(state.project || '')) + '</b><span class="sub">' + pct + '% of the map drawn</span></div>' +
+      '<div class="pbar"><div style="width:' + pct + '%"></div></div>' +
+      list.map(function (s) {
+        var p = prog[s[0]], secs = p.start ? Math.round(((p.end || now) - p.start) / 1000) + ' s' : '';
+        var icon = { wait: '·', run: '◌', done: '✓', fail: '!' }[p.state];
+        var text = p.state === 'run' ? s[3]() : (p.note || s[1]);
+        return '<div class="step ' + p.state + '"><span class="s">' + icon + '</span><span style="min-width:120px">' + esc(s[1]) + '</span><span style="flex:1">' + esc(text) + '</span><span>' + secs + '</span></div>';
+      }).join('');
+    if (pct === 100) setTimeout(function () { if (Object.keys(prog).every(function (k) { return k === 'list' || prog[k].state !== 'run'; })) $('progress').className = 'progress hide'; }, 1500);
+  }
+  setInterval(function () { if (prog.list && $('progress').className === 'progress') drawProgress(); }, 1000);
+
+  function run(id, name, params) {
+    mark(id, 'run');
+    return view(name, params).then(function (rows) { state.data[id] = rows; mark(id, 'done', rows.length + ' row' + (rows.length === 1 ? '' : 's')); render(); return rows; })
+      .catch(function (e) { state.data[id] = { error: e && e.message || String(e) }; mark(id, 'fail', e && e.message || 'failed'); render(); });
+  }
+
+  /* ── one project ── */
+  function analyze(key) {
+    key = (key || '').trim(); if (!key) return;
+    state.project = key; state.data = {}; state.tab = 'routes';
+    $('project').value = key; location.hash = 'project=' + encodeURIComponent(key);
+    steps(STEPS); render();
+    var p = { project: key };
+    /* The first read clones and parses; the rest reuse it, so they wait for it. */
+    run('languages', 'ProjectLanguages', p).then(function () {
+      if (state.data.languages && state.data.languages.error) return;
+      return Promise.all([run('routes', 'Routes', p), run('shared', 'SharedNames', p), run('deps', 'ExternalDependencies', p),
+                          run('docs', 'DocCoverage', p), run('largest', 'LargestFunctions', p)]);
+    });
+  }
+
+  function render() {
+    if (!state.project) { $('main').innerHTML = ''; return; }
+    var d = state.data, langs = d.languages;
+    if (langs && langs.error) { $('main').innerHTML = '<div class="note err">Could not read ' + esc(state.project) + ': ' + esc(langs.error) + '</div>'; return; }
+    var html = '';
+    if (Array.isArray(langs)) {
+      var rows = langs.filter(function (r) { return r.files > 0; }).sort(function (a, b) { return (b.lines || b.files) - (a.lines || a.files); });
+      var files = rows.reduce(function (s, r) { return s + r.files; }, 0), lines = rows.reduce(function (s, r) { return s + (r.lines || 0); }, 0);
+      var errs = rows.reduce(function (s, r) { return s + (r.syntaxErrors || 0); }, 0);
+      var routes = Array.isArray(d.routes) ? d.routes.filter(function (r) { return r.role === 'route' || r.role === 'resource'; }).length : '…';
+      html += '<div class="card"><div class="stats">' +
+        stat('Languages', rows.length) + stat('Source files', files) + stat('Lines', lines ? lines.toLocaleString() : '…') + stat('Endpoints', routes) +
+        stat('Shared names', Array.isArray(d.shared) ? d.shared.length : '…') + '</div>' +
+        '<div class="bar">' + rows.map(function (r) { return '<div title="' + esc(NAMES[r.language] || r.language) + '" style="flex:' + (r.lines || r.files * 100) + ';background:' + (COLORS[r.language] || '#8a94a6') + '"></div>'; }).join('') + '</div>' +
+        '<div class="legend">' + rows.map(function (r) { return '<span><i style="background:' + (COLORS[r.language] || '#8a94a6') + '"></i>' + esc(NAMES[r.language] || r.language) + ' · ' + r.files + ' files' + (r.lines ? ' · ' + r.lines.toLocaleString() + ' lines' : '') + '</span>'; }).join('') + '</div>' +
+        (errs ? '<div class="note warn">' + errs + ' syntax error' + (errs === 1 ? '' : 's') + ' in the code read — the rest of each file still answers.</div>' : '') + '</div>';
+    }
+    var TABS = [['routes', 'Endpoints'], ['search', 'Find'], ['shared', 'Shared across languages'], ['deps', 'Dependencies'], ['docs', 'Documentation'], ['largest', 'Longest functions']];
+    html += '<div class="tabs">' + TABS.map(function (t) {
+      var v = d[t[0]], n = Array.isArray(v) ? '<span class="n">' + v.length + '</span>' : '';
+      return '<button type="button" data-tab="' + t[0] + '" class="' + (state.tab === t[0] ? 'on' : '') + '">' + t[1] + n + '</button>';
+    }).join('') + '</div><section id="panel">' + panel() + '</section>';
+    $('main').innerHTML = html;
+    if (state.tab === 'search') bindSearch();
+  }
+  function stat(k, v) { return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>'; }
+  function pending(id) { var v = state.data[id]; if (v == null) return '<div class="empty">Reading…</div>'; if (v.error) return '<div class="note err">' + esc(v.error) + '</div>'; return null; }
+
+  function panel() {
+    var t = state.tab, wait = t !== 'search' && pending(t); if (wait) return wait;
+    var d = state.data[t];
+    if (t === 'routes') {
+      var order = { route: 0, resource: 1, prefix: 2, client: 3 }, roles = { route: 'Endpoints it serves', resource: 'REST resources', prefix: 'Paths its routes sit under', client: 'Calls it makes to other services' };
+      var groups = {}; d.forEach(function (r) { (groups[r.role] = groups[r.role] || []).push(r); });
+      var keys = Object.keys(groups).sort(function (a, b) { return order[a] - order[b]; });
+      if (!keys.length) return '<div class="empty">No endpoint in a framework the route styles know. If this project serves HTTP another way, a route style row teaches the atlas.</div>';
+      return keys.map(function (k) {
+        return '<h3>' + esc(roles[k] || k) + ' <span class="sub">' + groups[k].length + '</span></h3>' + table(groups[k], [
+          ['Method', function (r) { return method(r.method); }], ['Path', function (r) { return '<span class="mono">' + esc(r.path || '(none)') + '</span>'; }],
+          ['Handler', function (r) { return '<span class="mono">' + esc(r.handler) + '</span>'; }], ['Framework', function (r) { return lang(r.language) + ' <span class="sub">' + esc(r.framework) + '</span>'; }],
+          ['Where', where]]);
+      }).join('') + '<div class="note">Matched by the route styles in the realm’s reference data — the annotation, decorator or router call each framework uses. Paths are as written; a class-level prefix is listed under “Paths its routes sit under”.</div>';
+    }
+    if (t === 'shared') return d.length ? '<div class="note">Names declared in more than one language — the vocabulary a backend and its frontend share, or code carried from one language to another.</div>' + table(d, [
+      ['Name', function (r) { return '<b class="mono">' + esc(r.name) + '</b>'; }], ['Languages', function (r) { return r.languages.map(lang).join(' '); }],
+      ['Declared as', function (r) { return '<span class="sub">' + r.where.slice(0, 6).map(esc).join('<br>') + (r.where.length > 6 ? '<br>…' : '') + '</span>'; }]])
+      : '<div class="empty">No type, function or method name is declared in more than one language.</div>';
+    if (t === 'deps') return table(d, [['Language', function (r) { return lang(r.language); }], ['Imports', function (r) { return '<span class="mono">' + esc(r.imported) + '</span>'; }], ['Files', function (r) { return r.files; }]]);
+    if (t === 'docs') return table(d, [['Language', function (r) { return lang(r.language); }], ['Kind', function (r) { return esc(r.kind); }], ['Declared', function (r) { return r.declared; }],
+      ['Documented', function (r) { return r.documented; }], ['', function (r) { var p = r.percent || 0; return '<div class="pbar" style="width:140px;display:inline-block;vertical-align:middle"><div style="width:' + p + '%;background:' + (p >= 60 ? 'var(--green)' : p >= 25 ? 'var(--amber)' : 'var(--red)') + '"></div></div> ' + p + '%'; }]]);
+    if (t === 'largest') return table(d, [['Lines', function (r) { return '<b>' + r.lines + '</b>'; }], ['Function', function (r) { return '<span class="mono">' + esc(r.name) + '</span>'; }],
+      ['Language', function (r) { return lang(r.language); }], ['Where', where]]);
+    return searchPanel();
+  }
+
+  function searchPanel() {
+    return '<form class="row" id="find"><input id="q" placeholder="A name: Order, save, fetchUser, ArticleController" style="flex:1;min-width:220px" spellcheck="false">' +
+      '<select id="qk"><option value="def">Where is it defined?</option><option value="calls">Who calls it?</option></select><button class="primary">Find</button></form><div id="found"></div>';
+  }
+  function bindSearch() {
+    $('find').addEventListener('submit', function (e) {
+      e.preventDefault(); var q = $('q').value.trim(); if (!q) return;
+      var def = $('qk').value === 'def';
+      $('found').innerHTML = '<div class="empty">Searching every language…</div>';
+      view(def ? 'WhereDefined' : 'WhoCalls', { project: state.project, name: q }).then(function (rows) {
+        $('found').innerHTML = def ? table(rows, [['Language', function (r) { return lang(r.language); }], ['Kind', function (r) { return esc(r.kind); }],
+          ['Declaration', function (r) { return '<span class="mono">' + esc(r.signature || r.name) + '</span>' + (r.owner ? '<div class="sub">in ' + esc(r.owner) + '</div>' : '') + (r.doc ? '<div class="sub">' + esc(r.doc) + '</div>' : ''); }], ['Where', where]])
+          : '<div class="note">Matched by name: each row is a call to something called <b>' + esc(q) + '</b>; the receiver says which.</div>' + table(rows, [['Language', function (r) { return lang(r.language); }],
+          ['Call', function (r) { return '<span class="mono">' + esc((r.receiver ? r.receiver + '.' : '') + r.method + '(' + (r.arguments || []).join(', ') + ')') + '</span>'; }],
+          ['In', function (r) { return '<span class="mono">' + esc(r.caller || '(top level)') + '</span>'; }], ['Where', where]]);
+      }).catch(function (e) { $('found').innerHTML = '<div class="note err">' + esc(e && e.message || e) + '</div>'; });
+    });
+  }
+
+  /* ── the same API, ten implementations ── */
+  function compare() {
+    state.project = 'RealWorld × 10'; state.data = {};
+    location.hash = 'compare';
+    var list = REALWORLD.map(function (s, i) { return ['rw' + i, s.name + ' · ' + s.fw, 10, function () { return 'Reading ' + short(s.key) + ' and matching its routes'; }]; });
+    steps(list);
+    var results = {};
+    function draw() {
+      $('main').innerHTML = '<div class="note">The same API — users, profiles, articles, comments, tags — implemented ten times. Each column is one implementation’s endpoints as its own code declares them: a Gin router call, an ASP.NET attribute, a Rocket attribute, a Spring annotation, a Django URL pattern, a Rails resource.</div><div class="compare">' +
+        REALWORLD.map(function (s, i) {
+          var r = results[i];
+          var body = r == null ? '<div class="sub">Reading…</div>' : r.error ? '<div class="note err">' + esc(r.error) + '</div>'
+            : r.filter(function (x) { return x.role !== 'client'; }).map(function (x) { return '<div class="r">' + method(x.method) + '<span class="p" title="' + esc(x.handler) + '">' + esc(x.path || '(none)') + '</span></div>'; }).join('') || '<div class="sub">None found</div>';
+          var n = Array.isArray(r) ? r.filter(function (x) { return x.role === 'route' || x.role === 'resource'; }).length : '';
+          return '<div class="card"><h3><span>' + esc(s.name) + ' <span class="sub">' + esc(s.fw) + '</span></span><span class="sub">' + n + '</span></h3>' + body +
+            '<div style="margin-top:8px"><a href="#project=' + encodeURIComponent(s.key) + '">Open the full map →</a></div></div>';
+        }).join('') + '</div>';
+    }
+    draw();
+    /* Two at a time: each is a clone and a parse. */
+    var queue = REALWORLD.map(function (s, i) { return i; });
+    function next() {
+      var i = queue.shift(); if (i == null) return Promise.resolve();
+      mark('rw' + i, 'run');
+      return view('Routes', { project: REALWORLD[i].key }).then(function (rows) { results[i] = rows; mark('rw' + i, 'done', rows.length + ' rows'); })
+        .catch(function (e) { results[i] = { error: e && e.message || String(e) }; mark('rw' + i, 'fail', 'failed'); })
+        .then(function () { draw(); return next(); });
+    }
+    next(); next();
+  }
+
+  /* ── start ── */
+  function chips(id, list) {
+    $(id).innerHTML = list.map(function (s, i) { return '<button type="button" data-i="' + i + '"><b>' + esc(s.name) + '</b> ' + esc(s.fw) + '</button>'; }).join('');
+    $(id).addEventListener('click', function (e) { var b = e.target.closest('button[data-i]'); if (b) analyze(list[Number(b.dataset.i)].key); });
+  }
+  chips('realworld', REALWORLD); chips('fullstack', FULLSTACK);
+  $('compare').addEventListener('click', compare);
+  $('form').addEventListener('submit', function (e) { e.preventDefault(); analyze($('project').value); });
+  document.addEventListener('click', function (e) { var b = e.target.closest('.tabs button[data-tab]'); if (b) { state.tab = b.dataset.tab; render(); } });
+  function fromHash() {
+    if (location.hash === '#compare') { if (state.project !== 'RealWorld × 10') compare(); return; }
+    var m = location.hash.match(/^#project=(.+)$/);
+    if (m) { var key = decodeURIComponent(m[1]); if (key !== state.project && key.length < 400) analyze(key); }
+  }
+  addEventListener('hashchange', fromHash);
+  if (embabel.manifest && embabel.manifest.ready) embabel.manifest.ready.then(fromHash).catch(fromHash); else fromHash();
+})();
+</script>
+</body>
+</html>

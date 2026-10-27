@@ -1,0 +1,140 @@
+# Questions a developer asks of any codebase, answered across every language a project is written in.
+# Each names the standard model's parents (SourceDeclaration, SourceImport, CallSite, Source), so a
+# Python backend and its TypeScript frontend, or a Java service and its Kotlin tests, answer as one.
+
+- name: ProjectLanguages
+  description: >-
+    What a project is written in: files, lines and syntax errors per language (Java's files counted
+    by the types they declare). The first question to ask of an unfamiliar repository.
+  params:
+    project: { type: string, description: "Project key: a repository URL (optionally @ref) or a folder." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]->(s:Source)
+    RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines, sum(coalesce(s.errors, 0)) AS syntaxErrors
+    UNION ALL
+    MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]->(t:JavaCodeType)
+    RETURN 'java' AS language, count(DISTINCT t.path) AS files, null AS lines, 0 AS syntaxErrors
+
+- name: Routes
+  description: >-
+    Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin
+    mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and
+    Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the
+    handler and the line. Also the paths routes sit under (role prefix), whole REST resources (role
+    resource) and calls the code makes to other services (role client). Matched by the route styles
+    in reference data (RouteStyle); a framework missing there is a row to add, not code to write.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE size(d.annotationText) > 0
+    MATCH (s:RouteStyle {shape: 'annotation'})
+    WHERE d.language IN s.languages
+    WITH d, s, [t IN d.annotationText WHERE toLower(t) CONTAINS s.pattern] AS hits
+    WHERE size(hits) > 0
+    WITH d, s, hits[0] AS a
+    RETURN s.role AS role, s.method AS method,
+           CASE WHEN a CONTAINS '"' THEN split(a, '"')[1] WHEN a CONTAINS "'" THEN split(a, "'")[1] ELSE '' END AS path,
+           s.framework AS framework, d.language AS language,
+           CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS handler,
+           a AS declaredAs, d.path AS file, d.fromLine AS line, d.url AS url
+    UNION ALL
+    MATCH (p:CodeProject {key: $project})-[:CALLS]->(c:CallSite)
+    WHERE size(c.arguments) > 0
+    MATCH (s:RouteStyle {shape: 'call'})
+    WHERE c.method = s.pattern AND c.language IN s.languages AND (size(s.receivers) = 0 OR c.receiver IN s.receivers)
+    WITH c, s, c.arguments[0] AS first
+    WHERE first STARTS WITH '"' OR first STARTS WITH "'" OR first STARTS WITH '`' OR first STARTS WITH "r'" OR first STARTS WITH 'r"' OR first STARTS WITH ':'
+    RETURN s.role AS role, s.method AS method,
+           replace(replace(replace(CASE WHEN first STARTS WITH 'r' THEN substring(first, 1) ELSE first END, '"', ''), "'", ''), '`', '') AS path,
+           s.framework AS framework, c.language AS language,
+           CASE WHEN size(c.arguments) > 1 THEN c.arguments[1] ELSE c.enclosing END AS handler,
+           c.receiver + '.' + c.method + '(…)' AS declaredAs, c.path AS file, c.line AS line, c.url AS url
+    ORDER BY role, path, method
+
+- name: WhereDefined
+  description: >-
+    Where a name is declared, in every language: a class, function, method, field or constant called
+    exactly this, with its kind, owner, signature, doc and line. Java's types are matched by their
+    simple name.
+  params:
+    project: { type: string, description: "Project key." }
+    name: { type: string, description: "The name, exactly as declared (case matters)." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration {name: $name})
+    RETURN d.language AS language, d.kind AS kind, d.owner AS owner, d.name AS name, d.signature AS signature,
+           d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url
+    UNION ALL
+    MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]->(t:JavaCodeType {simpleName: $name})
+    RETURN 'java' AS language, t.kind AS kind, '' AS owner, t.name AS name, t.kind + ' ' + t.simpleName AS signature,
+           '' AS doc, t.path AS file, t.line AS line, t.url AS url
+
+- name: WhoCalls
+  description: >-
+    Every call to a name, in every language a project is written in tree-sitter reads, with what it
+    is called on, its arguments and the function it is in. Calls are matched by NAME (resolution
+    'name'): this is every call to something called that, not proof of which one — the receiver says
+    more. Java calls are not listed here; its jar and source realms resolve them exactly.
+  params:
+    project: { type: string, description: "Project key." }
+    name: { type: string, description: "The called name, exactly (e.g. save, get, fetchUser)." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:CALLS]->(c:CallSite {method: $name})
+    RETURN c.language AS language, c.receiver AS receiver, c.method AS method, c.arguments AS arguments,
+           c.enclosing AS caller, c.resolution AS resolution, c.path AS file, c.line AS line, c.url AS url
+    ORDER BY file, line LIMIT 1000
+
+- name: SharedNames
+  description: >-
+    Names declared in more than one language of the same project — the vocabulary a backend and its
+    frontend share (an Item model in Python and an Item interface in TypeScript), or code ported
+    from one language to another. Types, functions and methods only.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'type', 'protocol', 'function', 'method', 'object']
+      AND size(d.name) > 3
+    WITH d.name AS name, collect(DISTINCT d.language) AS languages, collect(DISTINCT d.language + ' ' + d.kind + ' in ' + d.path) AS where
+    WHERE size(languages) > 1
+    RETURN name, languages, size(languages) AS languageCount, where
+    ORDER BY languageCount DESC, name LIMIT 200
+
+- name: ExternalDependencies
+  description: >-
+    What a project imports from outside itself, per language: every module, package or header its
+    files import that is not a relative path, with how many files import it. The dependencies that
+    matter are the ones the code actually uses.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:IMPORTS]->(i:SourceImport)
+    WHERE i.imported <> '' AND NOT i.imported STARTS WITH '.' AND NOT i.imported STARTS WITH '/'
+    RETURN i.language AS language, i.imported AS imported, count(DISTINCT i.path) AS files
+    ORDER BY files DESC, imported LIMIT 300
+
+- name: DocCoverage
+  description: >-
+    How much of a project is documented, per language and kind: declarations of types, functions and
+    methods, and how many carry a doc comment or docstring.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'function', 'method', 'constructor']
+    WITH d.language AS language, d.kind AS kind, count(d) AS declared, sum(CASE WHEN coalesce(d.javadoc, '') <> '' THEN 1 ELSE 0 END) AS documented
+    RETURN language, kind, declared, documented, round(100.0 * documented / declared) AS percent
+    ORDER BY language, declared DESC
+
+- name: LargestFunctions
+  description: >-
+    The longest functions and methods in a project, in every language — where complexity lives, and
+    the first candidates to split.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.kind IN ['function', 'method', 'constructor']
+    RETURN d.language AS language, CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS name,
+           d.toLine - d.fromLine + 1 AS lines, d.signature AS signature, d.path AS file, d.fromLine AS line, d.url AS url
+    ORDER BY lines DESC LIMIT 25
