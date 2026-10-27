@@ -23,6 +23,9 @@
     handler and the line (`test` marks one declared in a test file). Also the paths routes sit under (role prefix), whole REST resources (role
     resource) and calls the code makes to other services (role client). Matched by the route styles
     in reference data (RouteStyle); a framework missing there is a row to add, not code to write.
+    Paths are as each route writes them: a route's full path is the prefix row in the same file (a
+    class's @RequestMapping, [Route] or @Controller) joined to its own. A Rails or DRF resource is
+    one row for the REST resource it declares.
   params:
     project: { type: string, description: "Project key." }
   cypher: |
@@ -45,11 +48,25 @@
     WHERE c.method = s.pattern AND c.language IN s.languages AND (size(s.receivers) = 0 OR c.receiver IN s.receivers)
     WITH c, s, c.arguments[0] AS first
     WHERE first STARTS WITH '"' OR first STARTS WITH "'" OR first STARTS WITH '`' OR first STARTS WITH "r'" OR first STARTS WITH 'r"' OR first STARTS WITH ':'
+    WITH c, s, first, [a IN tail(c.arguments) WHERE NOT a CONTAINS ': ' AND NOT a CONTAINS '=' AND NOT a STARTS WITH 'auth'] AS named
+    WITH c, s, first, CASE WHEN size(named) = 0 THEN c.enclosing ELSE named[size(named) - 1] END AS h
     RETURN s.role AS role, s.method AS method,
-           replace(replace(replace(CASE WHEN first STARTS WITH 'r' THEN substring(first, 1) ELSE first END, '"', ''), "'", ''), '`', '') AS path,
+           replace(replace(replace(replace(CASE WHEN first STARTS WITH 'r' THEN substring(first, 1) WHEN first STARTS WITH ':' THEN substring(first, 1) ELSE first END, '"', ''), "'", ''), '`', ''), ':', '') AS path,
            s.framework AS framework, c.language AS language,
-           CASE WHEN size(c.arguments) < 2 THEN c.enclosing WHEN size(c.arguments[1]) > 60 THEN '(inline) ' + substring(c.arguments[1], 0, 48) + '…' ELSE c.arguments[1] END AS handler,
+           CASE WHEN size(h) > 60 THEN '(inline) ' + substring(h, 0, 48) + '…' ELSE h END AS handler,
            c.receiver + '.' + c.method + '(…)' AS declaredAs, toLower(c.path) CONTAINS 'test' AS test, c.path AS file, c.line AS line, c.url AS url
+    UNION ALL
+    MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]->(t:JavaCodeType)
+    WHERE size(t.annotationText) > 0
+    MATCH (s:RouteStyle {shape: 'annotation', role: 'prefix'})
+    WHERE 'java' IN s.languages
+    WITH t, s, [x IN t.annotationText WHERE toLower(x) CONTAINS s.pattern] AS hits
+    WHERE size(hits) > 0
+    WITH t, s, hits[0] AS a
+    RETURN s.role AS role, s.method AS method,
+           CASE WHEN a CONTAINS '"' THEN split(a, '"')[1] ELSE '' END AS path,
+           s.framework AS framework, 'java' AS language, t.name AS handler,
+           a AS declaredAs, toLower(t.path) CONTAINS 'test' AS test, t.path AS file, t.line AS line, t.url AS url
     ORDER BY role, test, path, method
 
 - name: WhereDefined

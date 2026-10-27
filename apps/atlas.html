@@ -104,7 +104,7 @@ RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines, sum(coa
 UNION ALL
 MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaCodeType)
 RETURN &#x27;java&#x27; AS language, count(DISTINCT t.path) AS files, null AS lines, 0 AS syntaxErrors</pre></details>
-  <details><summary><b>Routes</b> — Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the handler and the line (`test` marks one declared in a test file). Also the paths routes sit under (role prefix), whole REST resources (role resource) and calls the code makes to other services (role client). Matched by the route styles in reference data (RouteStyle); a framework missing there is a row to add, not code to write.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+  <details><summary><b>Routes</b> — Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the handler and the line (`test` marks one declared in a test file). Also the paths routes sit under (role prefix), whole REST resources (role resource) and calls the code makes to other services (role client). Matched by the route styles in reference data (RouteStyle); a framework missing there is a row to add, not code to write. Paths are as each route writes them: a route&#x27;s full path is the prefix row in the same file (a class&#x27;s @RequestMapping, [Route] or @Controller) joined to its own. A Rails or DRF resource is one row for the REST resource it declares.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
 WHERE size(d.annotationText) &gt; 0
 MATCH (s:RouteStyle {shape: &#x27;annotation&#x27;})
 WHERE d.language IN s.languages
@@ -123,11 +123,25 @@ MATCH (s:RouteStyle {shape: &#x27;call&#x27;})
 WHERE c.method = s.pattern AND c.language IN s.languages AND (size(s.receivers) = 0 OR c.receiver IN s.receivers)
 WITH c, s, c.arguments[0] AS first
 WHERE first STARTS WITH &#x27;&quot;&#x27; OR first STARTS WITH &quot;&#x27;&quot; OR first STARTS WITH &#x27;`&#x27; OR first STARTS WITH &quot;r&#x27;&quot; OR first STARTS WITH &#x27;r&quot;&#x27; OR first STARTS WITH &#x27;:&#x27;
+WITH c, s, first, [a IN tail(c.arguments) WHERE NOT a CONTAINS &#x27;: &#x27; AND NOT a CONTAINS &#x27;=&#x27; AND NOT a STARTS WITH &#x27;auth&#x27;] AS named
+WITH c, s, first, CASE WHEN size(named) = 0 THEN c.enclosing ELSE named[size(named) - 1] END AS h
 RETURN s.role AS role, s.method AS method,
-       replace(replace(replace(CASE WHEN first STARTS WITH &#x27;r&#x27; THEN substring(first, 1) ELSE first END, &#x27;&quot;&#x27;, &#x27;&#x27;), &quot;&#x27;&quot;, &#x27;&#x27;), &#x27;`&#x27;, &#x27;&#x27;) AS path,
+       replace(replace(replace(replace(CASE WHEN first STARTS WITH &#x27;r&#x27; THEN substring(first, 1) WHEN first STARTS WITH &#x27;:&#x27; THEN substring(first, 1) ELSE first END, &#x27;&quot;&#x27;, &#x27;&#x27;), &quot;&#x27;&quot;, &#x27;&#x27;), &#x27;`&#x27;, &#x27;&#x27;), &#x27;:&#x27;, &#x27;&#x27;) AS path,
        s.framework AS framework, c.language AS language,
-       CASE WHEN size(c.arguments) &lt; 2 THEN c.enclosing WHEN size(c.arguments[1]) &gt; 60 THEN &#x27;(inline) &#x27; + substring(c.arguments[1], 0, 48) + &#x27;…&#x27; ELSE c.arguments[1] END AS handler,
+       CASE WHEN size(h) &gt; 60 THEN &#x27;(inline) &#x27; + substring(h, 0, 48) + &#x27;…&#x27; ELSE h END AS handler,
        c.receiver + &#x27;.&#x27; + c.method + &#x27;(…)&#x27; AS declaredAs, toLower(c.path) CONTAINS &#x27;test&#x27; AS test, c.path AS file, c.line AS line, c.url AS url
+UNION ALL
+MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaCodeType)
+WHERE size(t.annotationText) &gt; 0
+MATCH (s:RouteStyle {shape: &#x27;annotation&#x27;, role: &#x27;prefix&#x27;})
+WHERE &#x27;java&#x27; IN s.languages
+WITH t, s, [x IN t.annotationText WHERE toLower(x) CONTAINS s.pattern] AS hits
+WHERE size(hits) &gt; 0
+WITH t, s, hits[0] AS a
+RETURN s.role AS role, s.method AS method,
+       CASE WHEN a CONTAINS &#x27;&quot;&#x27; THEN split(a, &#x27;&quot;&#x27;)[1] ELSE &#x27;&#x27; END AS path,
+       s.framework AS framework, &#x27;java&#x27; AS language, t.name AS handler,
+       a AS declaredAs, toLower(t.path) CONTAINS &#x27;test&#x27; AS test, t.path AS file, t.line AS line, t.url AS url
 ORDER BY role, test, path, method</pre></details>
   <details><summary><b>SharedNames</b> — Names declared in more than one language of the same project — the vocabulary a backend and its frontend share (an Item model in Python and an Item interface in TypeScript), or code ported from one language to another. Types, functions and methods only.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
 WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;type&#x27;, &#x27;protocol&#x27;, &#x27;function&#x27;, &#x27;method&#x27;, &#x27;object&#x27;]
@@ -220,6 +234,21 @@ ORDER BY file, line LIMIT 1000</pre></details>
     if (!rows.length) return '<div class="empty">Nothing found.</div>';
     return '<div class="tbl"><table><tr>' + cols.map(function (c) { return '<th>' + esc(c[0]) + '</th>'; }).join('') + '</tr>' +
       rows.map(function (r) { return '<tr>' + cols.map(function (c) { return '<td>' + c[1](r) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>';
+  }
+  /* A route's full path: the nearest prefix declared above it in the same file, joined to its own path. */
+  function withPrefixes(rows) {
+    var prefixes = rows.filter(function (r) { return r.role === 'prefix'; });
+    return rows.map(function (r) {
+      if (r.role !== 'route') return Object.assign({ full: r.path }, r);
+      var pre = prefixes.filter(function (x) { return x.file === r.file && (x.line || 0) <= (r.line || 0); })
+        .sort(function (a, b) { return (b.line || 0) - (a.line || 0); })[0];
+      var full = pre ? join(pre.path, r.path) : r.path;
+      return Object.assign({ full: full }, r);
+    });
+  }
+  function join(a, b) {
+    a = (a || '').replace(/\/+$/, ''); b = (b || '').replace(/^\/+/, '');
+    return (a && b) ? a + '/' + b : (a || b);
   }
   function short(key) { return key.replace(/^https?:\/\/(www\.)?github\.com\//, ''); }
 
@@ -314,13 +343,14 @@ ORDER BY file, line LIMIT 1000</pre></details>
     var t = state.tab, wait = t !== 'search' && pending(t); if (wait) return wait;
     var d = state.data[t];
     if (t === 'routes') {
+      d = withPrefixes(d);
       var order = { route: 0, resource: 1, prefix: 2, client: 3, test: 4 }, roles = { route: 'Endpoints it serves', resource: 'REST resources', prefix: 'Paths its routes sit under', client: 'Calls it makes to other services', test: 'Endpoints its tests declare' };
       var groups = {}; d.forEach(function (r) { var k = r.test && r.role === 'route' ? 'test' : r.role; (groups[k] = groups[k] || []).push(r); });
       var keys = Object.keys(groups).sort(function (a, b) { return order[a] - order[b]; });
       if (!keys.length) return '<div class="empty">No endpoint in a framework the route styles know. If this project serves HTTP another way, a route style row teaches the atlas.</div>';
       return keys.map(function (k) {
         return '<h3>' + esc(roles[k] || k) + ' <span class="sub">' + groups[k].length + '</span></h3>' + table(groups[k], [
-          ['Method', function (r) { return method(r.method); }], ['Path', function (r) { return '<span class="mono">' + esc(r.path || '(none)') + '</span>'; }],
+          ['Method', function (r) { return method(r.method); }], ['Path', function (r) { return '<span class="mono">' + esc(r.full || r.path || '(none)') + '</span>'; }],
           ['Handler', function (r) { return '<span class="mono">' + esc(r.handler) + '</span>'; }], ['Framework', function (r) { return lang(r.language) + ' <span class="sub">' + esc(r.framework) + '</span>'; }],
           ['Where', where]]);
       }).join('') + '<div class="note">Matched by the route styles in the realm’s reference data — the annotation, decorator or router call each framework uses. Paths are as written; a class-level prefix is listed under “Paths its routes sit under”.</div>';
@@ -368,7 +398,8 @@ ORDER BY file, line LIMIT 1000</pre></details>
         REALWORLD.map(function (s, i) {
           var r = results[i];
           var body = r == null ? '<div class="sub">Reading…</div>' : r.error ? '<div class="note err">' + esc(r.error) + '</div>'
-            : r.filter(function (x) { return x.role !== 'client' && !x.test; }).map(function (x) { return '<div class="r">' + method(x.method) + '<span class="p" title="' + esc(x.handler) + '">' + esc(x.path || '(none)') + '</span></div>'; }).join('') || '<div class="sub">None found</div>';
+            : r.filter(function (x) { return (x.role === 'route' || x.role === 'resource') && !x.test; })
+                .sort(function (a, b) { return (a.full || '').localeCompare(b.full || '') || a.method.localeCompare(b.method); }).map(function (x) { return '<div class="r">' + method(x.method) + '<span class="p" title="' + esc(x.handler) + '">' + esc(x.full || x.path || '(none)') + '</span></div>'; }).join('') || '<div class="sub">None found</div>';
           var n = Array.isArray(r) ? r.filter(function (x) { return (x.role === 'route' || x.role === 'resource') && !x.test; }).length : '';
           return '<div class="card"><h3><span>' + esc(s.name) + ' <span class="sub">' + esc(s.fw) + '</span></span><span class="sub">' + n + '</span></h3>' + body +
             '<div style="margin-top:8px"><a href="#project=' + encodeURIComponent(s.key) + '">Open the full map →</a></div></div>';
@@ -380,7 +411,7 @@ ORDER BY file, line LIMIT 1000</pre></details>
     function next() {
       var i = queue.shift(); if (i == null) return Promise.resolve();
       mark('rw' + i, 'run');
-      return view('Routes', { project: REALWORLD[i].key }).then(function (rows) { results[i] = rows; mark('rw' + i, 'done', rows.length + ' rows'); })
+      return view('Routes', { project: REALWORLD[i].key }).then(function (rows) { results[i] = withPrefixes(rows); mark('rw' + i, 'done', rows.length + ' rows'); })
         .catch(function (e) { results[i] = { error: e && e.message || String(e) }; mark('rw' + i, 'fail', 'failed'); })
         .then(function () { draw(); return next(); });
     }
