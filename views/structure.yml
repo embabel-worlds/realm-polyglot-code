@@ -177,6 +177,20 @@
            call.enclosing AS calledFrom, call.path AS file, call.line AS line, call.language AS language
     ORDER BY score DESC, file, line LIMIT 200
 
+- name: Declaration
+  description: >-
+    One declaration of a project by its id, as a code search hit or a cited answer names it
+    (code://<id>): its language, kind, name, signature, doc and line. No row when the project as read
+    now no longer declares it, because the code moved since it was indexed.
+  params:
+    project: { type: string, description: "Project key." }
+    id: { type: string, description: "The declaration's id: a search hit's id, or a cited document's uri without code://." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.id = $id
+    RETURN d.id AS id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS name,
+           d.name AS simpleName, d.owner AS owner, d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.toLine AS toLine, d.url AS url
+
 - name: IndexedProjects
   description: >-
     The projects kept searchable by meaning: each one's declarations are read by the code-declarations

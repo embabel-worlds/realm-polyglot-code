@@ -1,10 +1,12 @@
 # A project's code, kept searchable by meaning. For each IndexedProject, every type, function, method and
 # constructor becomes one document (code://<declaration id>), tagged `code`. The host renders, ingests and
 # embeds them like any document: an unchanged declaration is skipped by the hash of its text, and one that
-# no longer exists is pruned after a complete run.
+# no longer exists is pruned after a complete run. No entity pass: a declaration already is a graph entity,
+# so a model call per declaration looking for the people and organizations it mentions would find nothing.
 sources:
   - name: code-declarations
     lane: documents
+    extractEntities: false
     from:
       cypher: |
         MATCH (ip:IndexedProject)-[:DECLARES]->(d:CodeDeclaration)

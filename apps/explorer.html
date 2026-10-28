@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%237c9cff' stroke-width='2' stroke-linecap='round'%3E%3Crect x='3' y='3' width='6' height='5' rx='1'/%3E%3Crect x='15' y='3' width='6' height='5' rx='1'/%3E%3Crect x='9' y='16' width='6' height='5' rx='1'/%3E%3Cpath d='M6 8v3h12V8M12 11v5'/%3E%3C/g%3E%3C/svg%3E">
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"code-explorer","requires":{"lenses":[],"views":["ProjectLanguages","PartDependencies","MutualDependencies","PartContents","Hotspots","UnusedTypes","Impact","WhoUses","WhoCalls","WhereDefined","SearchCode","IndexedProjects"],"realms":["realm-polyglot-code"],"namespaces":[]}}
+{"version":1,"name":"code-explorer","requires":{"lenses":[],"views":["ProjectLanguages","PartDependencies","MutualDependencies","PartContents","Hotspots","UnusedTypes","Impact","WhoUses","WhoCalls","WhereDefined","SearchCode","IndexedProjects","Declaration"],"realms":["realm-polyglot-code"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d12;--surface:#121620;--surface2:#171c28;--border:#232a38;--text:#e6e9f0;--dim:#8a94a6;
@@ -57,7 +57,12 @@
   .score{display:inline-block;height:6px;background:var(--accent);border-radius:3px;vertical-align:middle;margin-left:6px}
   .actions{margin-top:4px} .grid3{display:grid;gap:14px;grid-template-columns:1fr} @media(min-width:1100px){.grid3{grid-template-columns:1fr 1fr 1fr}}
   .legend{color:var(--dim);font-size:12px;margin:6px 2px} .legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin:0 4px 0 10px}
-  .answer{white-space:pre-wrap;background:var(--surface2);border-radius:8px;padding:10px 12px;margin-top:8px;font-size:13px}
+  .answer{background:var(--surface2);border-radius:8px;padding:10px 12px;margin-top:8px;font-size:13px;line-height:1.6}
+  .answer code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--surface);border-radius:4px;padding:0 4px}
+  a.cite{display:inline-block;font-size:11.5px;font-weight:700;background:#1d2740;color:var(--accent2);border-radius:5px;padding:0 6px;margin:0 1px;vertical-align:1px}
+  a.cite:hover{background:var(--accent);color:#0b0d12;text-decoration:none} a.cite.off{background:var(--surface);color:var(--dim)}
+  .hit.cited{border-left:3px solid var(--accent);padding-left:8px}
+  .decl-card{border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:10px}
   #embabel-badge{position:fixed;right:12px;bottom:10px;font-size:11.5px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:4px 10px;color:var(--dim)}
   #embabel-badge a{color:var(--dim)}
 </style>
@@ -121,12 +126,12 @@
   </section>
 
   <section id="pane-ask" hidden>
-    <p class="note">Ask the assistant about this project. It answers with the realm's views and searches, citing files and lines.</p>
+    <p class="note">Ask about this project in words. The answer is written from its own declarations, found by meaning, and each citation is one of them: click it to see the declaration on the map.</p>
     <form class="bar" id="askForm">
       <input type="text" id="question" placeholder="How does a request reach the database? Where would I add rate limiting?" aria-label="Question">
       <button class="primary" type="submit">Ask</button>
     </form>
-    <div id="answer"></div>
+    <div class="layout"><div id="answer"></div><aside class="panel side" id="evidence"><div class="note">The closest declarations by meaning appear here, the cited ones marked.</div></aside></div>
   </section>
 </div>
 <div id="embabel-badge">Built with <a href="https://worlds.embabel.com" target="_blank" rel="noopener">Embabel</a></div>
@@ -191,12 +196,13 @@
     location.hash = '#/p/' + encodeURIComponent(project) + '/' + tab + (arg ? '/' + encodeURIComponent(arg) : '');
   }
   function route() {
-    var m = location.hash.match(/^#\/p\/([^/]+)\/(map|search|review|ask)(?:\/([^/]*))?$/);
+    var m = location.hash.match(/^#\/p\/([^/]+)\/(map|search|review|ask|decl)(?:\/([^/]*))?$/);
     if (!m) { showTab(state.tab); return; }
     var project = decodeURIComponent(m[1]);
     if (!/^(https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_.\/-]+(@[A-Za-z0-9_.\/-]+)?|[A-Za-z0-9_.\/-]+)$/.test(project)) { say('That link names no project.', 'error'); return; }
     var arg = m[3] ? decodeURIComponent(m[3]) : '';
     if (project !== state.project) { state.project = project; state.loaded = {}; state.selected = null; $('project').value = project; remember(project); }
+    if (m[2] === 'decl') { showTab('map'); loadMap().then(function () { if (arg) showDeclaration(arg); }); return; }
     showTab(m[2]);
     if (m[2] === 'map') { loadMap().then(function () { if (arg) impact(arg); }); }
     if (m[2] === 'search') { loadIndexState(); if (arg) { $('query').value = arg; search(arg); } }
@@ -425,17 +431,91 @@
     }).catch(fail);
   }
 
-  /* ---------- ask ---------- */
+  /* ---------- a declaration, from a citation or a link: its part on the map, and its row ---------- */
+  function showDeclaration(id) {
+    say('Finding the declaration…');
+    return view('Declaration', { project: state.project, id: id }).then(function (rows) {
+      if (!rows.length) { say('That declaration is not in the project as read now: the code moved since it was indexed.', 'error'); return; }
+      var d = rows[0], part = dirOf(d.file);
+      selectPart(part);
+      var node = document.querySelector('.node[data-part="' + (window.CSS && CSS.escape ? CSS.escape(part) : part) + '"]');
+      if (node) node.scrollIntoView({ block: 'center', inline: 'center' });
+      $('side').insertAdjacentHTML('afterbegin', '<div class="decl-card">' + lang(d.language) + ' <b class="mono">' + esc(d.name) + '</b> <span class="note">' + esc(d.kind) + '</span>' +
+        (d.signature ? '<div class="mono note">' + esc(d.signature) + '</div>' : '') + (d.doc ? '<div class="note">' + esc(String(d.doc).slice(0, 300)) + '</div>' : '') +
+        '<div>' + where(d) + '</div><div class="actions"><button class="link" data-impact="' + esc(d.kind === 'method' || d.kind === 'function' || d.kind === 'constructor' ? (d.owner || d.simpleName) : d.simpleName) + '">impact on the map</button></div></div>');
+      say(node ? 'In ' + part + ', outlined on the map.' : 'In ' + part + ', which is not among the parts drawn (only the most connected are).');
+    }).catch(fail);
+  }
+
+  /* ---------- ask: an answer grounded in the project's declarations, each citation one of them ----------
+     SearchCode finds the closest declarations (the evidence); the appliance's document Q&A, narrowed to the
+     `code` tag, answers from the same index and returns its sources numbered as it cites them, each a
+     code://<declaration id>. If that answer cannot be had, the assistant is given the evidence numbered. */
+  function codePrefixes(project) {
+    var hostRepo = project.replace(/^https?:\/\//, '').replace(/\.git$/, '').split('@')[0];
+    return ['code://' + hostRepo + '@', 'code://' + project + '!'];
+  }
+  function inProject(uri) { return codePrefixes(state.project).some(function (p) { return String(uri || '').indexOf(p) === 0; }); }
+  function declLink(id) { return '#/p/' + encodeURIComponent(state.project) + '/decl/' + encodeURIComponent(id); }
+  function renderAnswer(text, sources) {
+    var html = esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+    return html.replace(/\[(\d+(?:\s*[,;]\s*\d+)*)\]/g, function (m, list) {
+      return list.split(/[,;]/).map(function (x) {
+        var n = Number(x.trim()), src = sources[n - 1];
+        return src ? '<a class="cite" href="' + declLink(src.id) + '" title="' + esc(src.title) + '">' + n + '</a>' : '<a class="cite off">' + n + '</a>';
+      }).join('');
+    });
+  }
+  function drawEvidence(rows, sources) {
+    var cited = {}; sources.forEach(function (s, i) { cited[s.id] = i + 1; });
+    $('evidence').innerHTML = '<h3 style="margin-top:0">Closest declarations by meaning</h3>' + (rows.length ? rows.map(function (r) {
+      var n = cited[r.id];
+      return '<div class="hit' + (n ? ' cited' : '') + '">' + (n ? '<b style="color:var(--accent2)">[' + n + ']</b> ' : '') + lang(r.language) +
+        ' <a class="name mono" href="' + declLink(r.id) + '">' + esc(r.name) + '</a> <span class="note">' + esc(r.kind) + ' · ' + Number(r.score || 0).toFixed(2) + '</span><div>' + where(r) + '</div></div>';
+    }).join('') : '<div class="empty">Nothing in this project’s index is close to that.</div>');
+  }
+  function documentAnswer(question) {
+    return fetch('/api/v1/documents/ask', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'About the code of ' + state.project.replace(/^https:\/\/github\.com\//, '') + ': ' + question, tag: 'code', topK: 8 }) })
+      .then(function (r) { if (!r.ok) throw new Error('documents/ask ' + r.status); return r.json(); })
+      .then(function (body) {
+        var sources = (body.sources || []).filter(function (s) { return /^code:\/\//.test(s.uri || ''); });
+        if (!body.answer || !sources.length) throw new Error(body.note || 'no grounded answer');
+        return { answer: body.answer, via: 'Answered by the appliance’s document Q&A' + (body.model ? ' (' + body.model + ')' : '') + ' over this project’s code index.',
+                 sources: sources.map(function (s) { return { id: String(s.uri).replace(/^code:\/\//, ''), title: s.title || s.uri, inProject: inProject(s.uri) }; }) };
+      });
+  }
   var chat = null;
-  function ask(question) {
-    if (!question) return;
-    $('answer').innerHTML = '<div class="answer">Thinking…</div>';
+  function chatAnswer(question, rows) {
+    if (!rows.length) throw new Error('Nothing in this project’s code index is close to that question, so there is nothing to answer from.');
+    var top = rows.slice(0, 10);
+    var context = top.map(function (r, i) {
+      return '[' + (i + 1) + '] ' + r.language + ' ' + r.kind + ' ' + r.name + ' — ' + r.file + ':' + r.line + '\n' + (r.signature || '') + (r.doc ? '\n' + String(r.doc).slice(0, 300) : '');
+    }).join('\n\n');
     chat = chat || embabel.chat.session({});
-    chat.ask('About the code project ' + state.project + ' (read it with the polyglot-code realm\'s views and code search): ' + question)
-      .then(function (message) {
-        var text = message && (message.text || message.content || message.body) || String(message || '');
-        $('answer').innerHTML = '<div class="answer">' + esc(text) + '</div>';
-      }).catch(function (e) { $('answer').innerHTML = '<div class="answer">' + esc((e && e.message) || String(e)) + '</div>'; });
+    return chat.ask('Answer a question about the code project ' + state.project + ' from these declarations, which a search of its code by meaning returned. ' +
+      'Cite each declaration you rely on by its number in square brackets, like [2]. If they do not answer the question, say so.\n\n' + context + '\n\nQuestion: ' + question)
+      .then(function (m) {
+        return { answer: m && m.content || '', via: 'Answered by the assistant from the ' + top.length + ' closest declarations.',
+                 sources: top.map(function (r) { return { id: r.id, title: r.name + ' (' + r.language + ' ' + r.kind + ')', inProject: true }; }) };
+      });
+  }
+  var asking = 0;
+  function ask(question) {
+    if (!question || !state.project) return;
+    var mine = ++asking;
+    $('answer').innerHTML = '<div class="answer note">Searching the code by meaning, then writing the answer from what it finds…</div>';
+    $('evidence').innerHTML = '<div class="empty">Searching…</div>';
+    var hits = view('SearchCode', { project: state.project, query: question }).catch(function () { return []; });
+    hits.then(function (rows) { if (mine === asking) drawEvidence(rows, []); });
+    documentAnswer(question).catch(function () { return hits.then(function (rows) { return chatAnswer(question, rows); }); })
+      .then(function (r) {
+        if (mine !== asking) return;
+        $('answer').innerHTML = '<div class="answer">' + renderAnswer(r.answer, r.sources) + '</div><h3>Cited declarations</h3>' +
+          r.sources.map(function (s, i) { return '<div class="note"><a class="cite" href="' + declLink(s.id) + '">' + (i + 1) + '</a> <a class="mono" href="' + declLink(s.id) + '">' + esc(s.title) + '</a>' + (s.inProject ? '' : ' (another indexed project)') + '</div>'; }).join('') +
+          '<div class="note">' + esc(r.via) + '</div>';
+        hits.then(function (rows) { if (mine === asking) drawEvidence(rows, r.sources); });
+      }).catch(function (e) { if (mine === asking) $('answer').innerHTML = '<div class="answer">' + esc((e && e.message) || String(e)) + '</div>'; });
   }
 
   /* ---------- wiring ---------- */

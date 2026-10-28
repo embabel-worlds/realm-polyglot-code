@@ -23,6 +23,13 @@ workspace when a question reaches it. Nothing is ingested.
   `branchy`, 3 ifs, 4 loops, 1 switch, 1 try, 1 catch, 2 instanceof and 2 casts (to `Integer` and
   `Number`); the field `value`, 1 cast to `Object`; `plain`, nothing, though its string and comments
   hold an `if` and a cast.
+- **Search and ask, by meaning:** mark a project as an `IndexedProject` and the `code-declarations`
+  documents source (`sources.yml`) keeps each of its types, functions and methods as a document
+  (`code://<declaration id>`, tagged `code`, no entity pass). `SearchCode` and `SearchAndCallers` find
+  code by what it does and lead back to the live declaration; `Declaration` reads one by id. The Atlas
+  and Explorer apps' **Ask** answers a question from those documents with the appliance's document
+  Q&A (or, when that gives no grounded answer, the assistant handed the closest declarations
+  numbered), and every citation is a declaration: click it to focus it in the Atlas or on the Explorer's map.
 - **Route styles are data:** `reference/route-styles.yml` says how each framework declares a route.
   Add a row to teach it another.
 
