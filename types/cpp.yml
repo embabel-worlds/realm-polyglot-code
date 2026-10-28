@@ -61,3 +61,18 @@
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host, when it has a file view."
     project: "The project as read: the folder, or host/repo@commit."
+
+- name: CppReference
+  parents: [SourceReference]
+  visibility: internal
+  userAnchor: false
+  description: "A name a C++ file uses where a type goes (a parameter's, field's or return type, a base class, a generic argument, an annotation, a constructor), with the declaration it is used in. Matched by NAME only (`resolution: name`): say 'uses a type named X'. Reach it from (:CodeProject {key})-[:REFERENCES]->; name the parent (SourceReference) to read every language at once."
+  virtualJoins:
+    - { anchorLabel: CodeProject, relationship: REFERENCES, keyField: key, recordKeyField: anchorKey, producer: cppReferences, maxFanoutTotal: 200000,
+        description: "(:CodeProject {key:$project})-[:REFERENCES]->(x:CppReference)" }
+  properties:
+    path: "File path, relative to the project."
+    language: "The language, as the producer names it."
+    line: { type: int, description: "Line it is on." }
+    url: "The line on the repository's host, when it has a file view."
+    project: "The project as read: the folder, or host/repo@commit."

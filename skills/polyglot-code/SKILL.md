@@ -17,6 +17,16 @@ Pin the project by its key and use the views first; they already span every lang
 | What does it depend on, really? | `ExternalDependencies(project)` |
 | How well documented is it? | `DocCoverage(project)` |
 | Where is the complexity? | `LargestFunctions(project)` |
+| Who uses type X? | `WhoUses(project, name)` |
+| What does this repository look like? | `PartDependencies(project)` |
+| Which parts depend on each other? | `MutualDependencies(project)` |
+| What does the most code lean on? | `Hotspots(project)` |
+| What might be unused? | `UnusedTypes(project)` |
+| What would changing X touch? | `Impact(project, name)` |
+
+For "what would you fix first?", ask `Hotspots`, `MutualDependencies` and `UnusedTypes`, rank what
+they find, and cite every claim with its file and line. Call the unused types candidates to check,
+never dead code.
 
 A key is `https://github.com/owner/repo` (optionally `@tag`, `@branch` or `@commit`) or a folder in
 the owner's workspace (`shop`).
@@ -31,11 +41,15 @@ MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:GoDeclaration)       // Go
 ```
 
 Relationships from `CodeProject`: `HAS_SOURCE` (Source), `DECLARES` (SourceDeclaration),
-`IMPORTS` (SourceImport), `CALLS` (CallSite), `DECLARES_TYPE` (JavaCodeType).
+`IMPORTS` (SourceImport), `CALLS` (CallSite), `REFERENCES` (SourceReference: a type name a file
+uses), `DECLARES_TYPE` (JavaCodeType). Install realm-code-model with this realm: it declares those
+parents.
 
-## Being honest about calls
+## Being honest about calls and uses
 
-Outside Java a call is matched by NAME: `resolution: 'name'`. "`OrderService.save` calls something
+Outside Java a call, and every type use, is matched by NAME: `resolution: 'name'`. Two types with one
+name share their uses; `Hotspots` says so with `sameName`, and `WhereDefined` shows how many declare
+a name. "`OrderService.save` calls something
 named `get` on `this.http`" is true; "it calls `HttpClient.get`" is a guess. Say which. Java's
 members are resolved by binary name through the file's imports; its call graph is in the Java realms.
 

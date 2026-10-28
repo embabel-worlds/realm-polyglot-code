@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%237c9cff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M8 6 2 12l6 6M16 6l6 6-6 6M14 4l-4 16'/%3E%3C/svg%3E">
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"code-atlas","requires":{"lenses":[],"views":["ProjectLanguages","Routes","SharedNames","ExternalDependencies","DocCoverage","LargestFunctions","WhereDefined","WhoCalls"],"realms":["realm-polyglot-code"],"namespaces":[]}}
+{"version":1,"name":"code-atlas","requires":{"lenses":[],"views":["ProjectLanguages","Routes","SharedNames","ExternalDependencies","DocCoverage","LargestFunctions","WhereDefined","WhoCalls","SearchCode","Declaration","IndexedProjects"],"realms":["realm-polyglot-code"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d12;--surface:#121620;--surface2:#171c28;--border:#232a38;--text:#e6e9f0;--dim:#8a94a6;
@@ -63,6 +63,16 @@
   summary{cursor:pointer} pre{white-space:pre-wrap;color:var(--dim);margin:8px 0 0}
   #how-it-works{display:none;max-width:1240px;margin:0 auto;padding:0 20px} #how-it-works:target{display:block}
   footer{color:var(--dim);font-size:12px;text-align:center;margin-top:28px}
+  .ask{display:grid;grid-template-columns:minmax(0,1fr);gap:14px} @media(min-width:1000px){.ask{grid-template-columns:minmax(0,1fr) 400px}}
+  .answer{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;line-height:1.6}
+  .answer code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--surface2);border-radius:4px;padding:0 4px}
+  a.cite{display:inline-block;font-size:11.5px;font-weight:700;background:#1d2740;color:var(--accent2);border-radius:5px;padding:0 6px;margin:0 1px;vertical-align:1px}
+  a.cite:hover{background:var(--accent);color:#0b0d12;text-decoration:none} a.cite.off{background:var(--surface2);color:var(--dim)}
+  .ev{border-bottom:1px solid #1a202b;padding:8px 4px;cursor:pointer;border-radius:6px} .ev:hover{background:#141a25}
+  .ev.cited{border-left:3px solid var(--accent);padding-left:8px} .ev.focus{background:#18213a;outline:1px solid var(--accent)}
+  .ev .nm{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;font-weight:600} .ev .n{color:var(--accent2);font-weight:700;font-size:11.5px;margin-right:4px}
+  .focus-card{background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+  .src{font-size:12.5px;padding:3px 0}
   @media (max-width:640px){.wrap{padding:16px}.search input{min-width:0}}
 </style>
 </head>
@@ -299,7 +309,7 @@ ORDER BY file, line LIMIT 1000</pre></details>
   /* ── one project ── */
   function analyze(key) {
     key = (key || '').trim(); if (!key) return;
-    state.project = key; state.data = {}; state.tab = 'routes';
+    state.project = key; state.data = {}; state.tab = 'routes'; state.ask = null;
     $('project').value = key; location.hash = 'project=' + encodeURIComponent(key);
     steps(STEPS); render();
     var p = { project: key };
@@ -313,6 +323,7 @@ ORDER BY file, line LIMIT 1000</pre></details>
 
   function render() {
     if (!state.project) { $('main').innerHTML = ''; return; }
+    var typed = $('question'); if (typed) state.draft = typed.value;
     var d = state.data, langs = d.languages;
     if (langs && langs.error) { $('main').innerHTML = '<div class="note err">Could not read ' + esc(state.project) + ': ' + esc(langs.error) + '</div>'; return; }
     var html = '';
@@ -328,19 +339,21 @@ ORDER BY file, line LIMIT 1000</pre></details>
         '<div class="legend">' + rows.map(function (r) { return '<span><i style="background:' + (COLORS[r.language] || '#8a94a6') + '"></i>' + esc(NAMES[r.language] || r.language) + ' · ' + r.files + ' files' + (r.lines ? ' · ' + r.lines.toLocaleString() + ' lines' : '') + '</span>'; }).join('') + '</div>' +
         (errs ? '<div class="note warn">' + errs + ' syntax error' + (errs === 1 ? '' : 's') + ' in the code read — the rest of each file still answers.</div>' : '') + '</div>';
     }
-    var TABS = [['routes', 'Endpoints'], ['search', 'Find'], ['shared', 'Shared across languages'], ['deps', 'Dependencies'], ['docs', 'Documentation'], ['largest', 'Longest functions']];
+    var TABS = [['routes', 'Endpoints'], ['search', 'Find'], ['ask', 'Ask'], ['shared', 'Shared across languages'], ['deps', 'Dependencies'], ['docs', 'Documentation'], ['largest', 'Longest functions']];
     html += '<div class="tabs">' + TABS.map(function (t) {
       var v = d[t[0]], n = Array.isArray(v) ? '<span class="n">' + v.length + '</span>' : '';
       return '<button type="button" data-tab="' + t[0] + '" class="' + (state.tab === t[0] ? 'on' : '') + '">' + t[1] + n + '</button>';
     }).join('') + '</div><section id="panel">' + panel() + '</section>';
     $('main').innerHTML = html;
     if (state.tab === 'search') bindSearch();
+    if (state.tab === 'ask') bindAsk();
   }
   function stat(k, v) { return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>'; }
   function pending(id) { var v = state.data[id]; if (v == null) return '<div class="empty">Reading…</div>'; if (v.error) return '<div class="note err">' + esc(v.error) + '</div>'; return null; }
 
   function panel() {
-    var t = state.tab, wait = t !== 'search' && pending(t); if (wait) return wait;
+    var t = state.tab; if (t === 'ask') return askPanel();
+    var wait = t !== 'search' && pending(t); if (wait) return wait;
     var d = state.data[t];
     if (t === 'routes') {
       d = withPrefixes(d);
@@ -386,6 +399,174 @@ ORDER BY file, line LIMIT 1000</pre></details>
     });
   }
 
+
+  /* ── ask: an answer grounded in the project's declarations, each citation one of them ──
+     Two reads at once. SearchCode finds the declarations closest to the question in this project's code
+     (the evidence column). The appliance's document Q&A (/api/v1/documents/ask, narrowed to the `code` tag)
+     answers from the same index and returns the sources it read, numbered as the answer cites them; each
+     source's uri is code://<declaration id>, so a citation IS a declaration. If that answer cannot be had,
+     the assistant is asked instead, given the evidence numbered, and its [n] are matched to it. */
+  /* Beside this app, wherever the realm's apps are served. */
+  var EXPLORER = 'explorer.html';
+  function codePrefixes(project) {
+    var hostRepo = project.replace(/^https?:\/\//, '').replace(/\.git$/, '').split('@')[0];
+    return ['code://' + hostRepo + '@', 'code://' + project + '!'];
+  }
+  function inProject(uri) { return codePrefixes(state.project).some(function (p) { return String(uri || '').indexOf(p) === 0; }); }
+  function declId(uri) { return String(uri || '').replace(/^code:\/\//, ''); }
+  function askPanel() {
+    var a = state.ask || {};
+    return '<form class="row" id="askForm"><input id="question" placeholder="How does a request reach the database? Where is retry handled? What builds the prompt?" style="flex:1;min-width:260px" spellcheck="false" value="' + esc(a.question || state.draft || '') + '">' +
+      '<button class="primary">Ask</button></form><div id="indexed" class="note" style="display:none"></div><div id="askOut">' + askBody() + '</div>';
+  }
+  function askBody() {
+    var a = state.ask;
+    if (!a) return '<div class="note">Ask in words. The answer is written from this project’s own declarations, found by meaning, and every citation is one of them: click it to focus the declaration here, or open it on the Explorer’s map.</div>';
+    var left = a.error ? '<div class="note err">' + esc(a.error) + '</div>'
+      : a.answer == null ? '<div class="answer"><span class="sub">' + esc(a.status || 'Reading the code…') + '</span></div>'
+      : !a.question ? '<div class="note">Ask a question about this project; its answer cites the declarations it was written from.</div>'
+      : '<div class="answer">' + renderAnswer(a.answer) + '</div>' + sourcesList(a) +
+        '<div class="sub" style="margin-top:6px">' + esc(a.via) + '</div>';
+    var right = (a.focus ? focusCard(a.focus) : '') + '<h3 style="margin-top:0">Evidence — closest declarations by meaning</h3>' + evidence(a);
+    return '<div class="ask"><div>' + left + '</div><aside>' + right + '</aside></div>';
+  }
+  /* The answer's own markup, escaped, with [n] / [n, m] made into links to the declaration each n names. */
+  function renderAnswer(text) {
+    var html = esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+    return html.replace(/\[(\d+(?:\s*[,;]\s*\d+)*)\]/g, function (m, list) {
+      return list.split(/[,;]/).map(function (x) { return citeLink(Number(x.trim())); }).join('');
+    });
+  }
+  function citeLink(n) {
+    var src = state.ask.sources[n - 1];
+    if (!src) return '<a class="cite off" title="Cites nothing the search returned">' + n + '</a>';
+    return '<a class="cite" href="#" data-decl="' + esc(src.id) + '" title="' + esc(src.title) + '">' + n + '</a>';
+  }
+  /* The numbers the answer actually cites: a source it read but never cited is evidence, not a citation. */
+  function citedNumbers(text) {
+    var nums = {};
+    String(text || '').replace(/\[(\d+(?:\s*[,;]\s*\d+)*)\]/g, function (m, list) { list.split(/[,;]/).forEach(function (x) { nums[Number(x.trim())] = true; }); return m; });
+    return nums;
+  }
+  function sourcesList(a) {
+    var nums = citedNumbers(a.answer);
+    if (!a.sources.some(function (s, i) { return nums[i + 1]; })) return '';
+    return '<h3>Cited declarations</h3>' + a.sources.map(function (s, i) {
+      if (!nums[i + 1]) return '';
+      return '<div class="src"><a class="cite" href="#" data-decl="' + esc(s.id) + '">' + (i + 1) + '</a> <a href="#" data-decl="' + esc(s.id) + '" class="mono">' + esc(s.title) + '</a>' +
+        (s.inProject ? '' : ' <span class="sub">(another indexed project)</span>') +
+        ' · <a href="' + explorerLink(s.id) + '" target="_blank" rel="noopener" class="sub">on the map ↗</a></div>';
+    }).join('');
+  }
+  function evidence(a) {
+    if (!a.hits) return '<div class="empty">Searching…</div>';
+    if (a.hits.error) return '<div class="note err">' + esc(a.hits.error) + '</div>';
+    if (!a.hits.length) return '<div class="empty">Nothing in this project’s index is close to that' + (a.indexed === false ? ' — it is not indexed yet (above).' : '.') + '</div>';
+    var nums = citedNumbers(a.answer), cited = {}; a.sources.forEach(function (s, i) { if (nums[i + 1]) cited[s.id] = i + 1; });
+    return a.hits.map(function (r) {
+      var n = cited[r.id];
+      return '<div class="ev' + (n ? ' cited' : '') + (a.focus && a.focus.id === r.id ? ' focus' : '') + '" data-decl="' + esc(r.id) + '" id="ev-' + esc(r.id) + '">' +
+        (n ? '<span class="n">[' + n + ']</span>' : '') + lang(r.language) + ' <span class="nm">' + esc(r.name) + '</span> <span class="sub">' + esc(r.kind) +
+        ' · ' + Number(r.score || 0).toFixed(2) + '</span><div class="sub mono" style="overflow-wrap:anywhere">' + esc(r.file) + ':' + esc(r.line) + '</div></div>';
+    }).join('');
+  }
+  function explorerLink(id) { return EXPLORER + '#/p/' + encodeURIComponent(state.project) + '/decl/' + encodeURIComponent(id); }
+  function focusCard(f) {
+    if (f.loading) return '<div class="focus-card"><span class="sub">Reading the declaration…</span></div>';
+    if (f.missing) return '<div class="focus-card"><b class="mono">' + esc(f.id) + '</b><div class="note warn">Not in the project as read now: the code moved since it was indexed. The next index run (every 15 minutes) catches up.</div></div>';
+    var d = f.row;
+    return '<div class="focus-card" id="focus"><div>' + lang(d.language) + ' <b class="mono">' + esc(d.name) + '</b> <span class="sub">' + esc(d.kind) + '</span></div>' +
+      (d.signature ? '<div class="mono" style="margin:6px 0;overflow-wrap:anywhere">' + esc(d.signature) + '</div>' : '') +
+      (d.doc ? '<div class="sub">' + esc(String(d.doc).slice(0, 400)) + '</div>' : '') +
+      '<div style="margin-top:6px">' + where(d) + ' · <a href="' + explorerLink(d.id) + '" target="_blank" rel="noopener">Open on the Explorer’s map ↗</a></div>' +
+      '<h3>Called from</h3>' + (f.callers == null ? '<div class="sub">Reading…</div>' : f.callers.length
+        ? f.callers.slice(0, 8).map(function (c) { return '<div class="src">' + esc(c.caller || '(top level)') + ' <span class="sub">' + where(c) + '</span></div>'; }).join('') +
+          (f.callers.length > 8 ? '<div class="sub">and ' + (f.callers.length - 8) + ' more — matched by name</div>' : '<div class="sub">Matched by name.</div>')
+        : '<div class="sub">No call to anything named ' + esc(d.simpleName) + '.</div>') + '</div>';
+  }
+  function drawAsk() { var out = $('askOut'); if (out && state.tab === 'ask') out.innerHTML = askBody(); }
+  function bindAsk() {
+    $('askForm').addEventListener('submit', function (e) { e.preventDefault(); var q = $('question').value.trim(); if (q) ask(q); });
+    view('IndexedProjects', {}).then(function (rows) {
+      var mine = rows.some(function (r) { return r.project === state.project; });
+      if (state.ask) state.ask.indexed = mine;
+      var el = $('indexed'); if (!el || mine) return;
+      el.style.display = 'block';
+      el.innerHTML = 'This project is not indexed for asking yet. <button type="button" id="makeIndexed">Index it</button> Its types, functions and methods become documents on the next run of the code index (every 15 minutes); only changed code is embedded again.';
+      $('makeIndexed').addEventListener('click', function () {
+        fetch('/api/v1/tools/create_entry', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'IndexedProject', data: { key: state.project, label: short(state.project) } }) })
+          .then(function (r) { if (!r.ok) throw new Error('The appliance would not record the project (' + r.status + ').'); embabel.cache.invalidate('view', 'IndexedProjects', {}); el.textContent = 'Recorded: the code index picks it up on its next run.'; })
+          .catch(function (e) { el.textContent = e.message; });
+      });
+    }).catch(function () { /* the index state is a hint; asking still works */ });
+  }
+  function ask(question) {
+    var a = state.ask = { question: question, status: 'Searching the code by meaning…', answer: null, sources: [], hits: null, focus: null, via: '' };
+    drawAsk();
+    var hits = view('SearchCode', { project: state.project, query: question })
+      .then(function (rows) { if (state.ask === a) { a.hits = rows; a.status = 'Writing the answer from what the search found…'; drawAsk(); } return rows; })
+      .catch(function (e) { a.hits = { error: e && e.message || String(e) }; drawAsk(); return []; });
+    documentAnswer(question).then(function (r) {
+      if (state.ask !== a) return;
+      a.answer = r.answer; a.via = r.via;
+      a.sources = r.sources.map(function (s) { return { id: declId(s.uri), title: s.title || declId(s.uri), inProject: inProject(s.uri) }; });
+      drawAsk();
+    }).catch(function () {
+      return hits.then(function (rows) { return chatAnswer(question, rows); }).then(function (r) {
+        if (state.ask !== a) return;
+        a.answer = r.answer; a.via = r.via; a.sources = r.sources; drawAsk();
+      });
+    }).catch(function (e) { if (state.ask === a) { a.error = e && e.message || String(e); drawAsk(); } });
+  }
+  /* The appliance's own grounded Q&A over the code index: typed sources, citations checked against what it read. */
+  function documentAnswer(question) {
+    return fetch('/api/v1/documents/ask', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'About the code of ' + short(state.project) + ': ' + question, tag: 'code', topK: 8 }) })
+      .then(function (r) { if (!r.ok) throw new Error('documents/ask ' + r.status); return r.json(); })
+      .then(function (body) {
+        var sources = (body.sources || []).filter(function (s) { return /^code:\/\//.test(s.uri || ''); });
+        if (!body.answer || !sources.length) throw new Error(body.note || 'no grounded answer');
+        return { answer: body.answer, sources: sources, via: 'Answered by the appliance’s document Q&A' + (body.model ? ' (' + body.model + ')' : '') + ' over this project’s code index; each [n] is a declaration it read.' };
+      });
+  }
+  /* The fallback: the assistant, handed the evidence numbered, cites by number. */
+  var chat = null;
+  function chatAnswer(question, rows) {
+    if (!rows.length) throw new Error('Nothing in this project’s code index is close to that question, so there is nothing to answer from.');
+    var top = rows.slice(0, 10);
+    var context = top.map(function (r, i) {
+      return '[' + (i + 1) + '] ' + r.language + ' ' + r.kind + ' ' + r.name + ' — ' + r.file + ':' + r.line + '\n' + (r.signature || '') + (r.doc ? '\n' + String(r.doc).slice(0, 300) : '');
+    }).join('\n\n');
+    chat = chat || embabel.chat.session({});
+    return chat.ask('Answer a question about the code project ' + state.project + ' from these declarations, which a search of its code by meaning returned. ' +
+      'Cite each declaration you rely on by its number in square brackets, like [2]. If they do not answer the question, say so.\n\n' + context + '\n\nQuestion: ' + question)
+      .then(function (m) {
+        return { answer: m && m.content || '', via: 'Answered by the assistant from the ' + top.length + ' closest declarations; each [n] is one of them.',
+                 sources: top.map(function (r) { return { id: r.id, title: r.name + ' (' + r.language + ' ' + r.kind + ')', inProject: true }; }) };
+      });
+  }
+  /* Focus a declaration: its live row, its callers, and its place in the evidence. */
+  function focus(id) {
+    var a = state.ask; if (!a) return;
+    a.focus = { id: id, loading: true }; drawAsk();
+    var ev = document.getElementById('ev-' + id); if (ev) ev.scrollIntoView({ block: 'nearest' });
+    view('Declaration', { project: state.project, id: id }).then(function (rows) {
+      if (!a.focus || a.focus.id !== id) return;
+      if (!rows.length) { a.focus = { id: id, missing: true }; drawAsk(); return; }
+      a.focus = { id: id, row: rows[0], callers: null }; drawAsk();
+      return view('WhoCalls', { project: state.project, name: rows[0].simpleName }).then(function (calls) {
+        if (a.focus && a.focus.id === id) { a.focus.callers = calls; drawAsk(); }
+      });
+    }).catch(function (e) { if (a.focus && a.focus.id === id) { a.focus = { id: id, missing: true, error: e && e.message }; drawAsk(); } });
+    var url = '#project=' + encodeURIComponent(state.project) + '&decl=' + encodeURIComponent(id);
+    if (location.hash !== url) history.replaceState(null, '', url);
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-decl]'); if (!t || state.tab !== 'ask') return;
+    e.preventDefault(); focus(t.dataset.decl);
+  });
+
   /* ── the same API, ten implementations ── */
   function compare() {
     state.project = 'RealWorld × 10'; state.data = {};
@@ -429,12 +610,16 @@ ORDER BY file, line LIMIT 1000</pre></details>
   document.addEventListener('click', function (e) { var b = e.target.closest('.tabs button[data-tab]'); if (b) { state.tab = b.dataset.tab; render(); } });
   function fromHash() {
     if (location.hash === '#compare') { if (state.project !== 'RealWorld × 10') compare(); return; }
-    var m = location.hash.match(/^#project=(.+)$/);
-    if (m) { var key = decodeURIComponent(m[1]); if (key !== state.project && key.length < 400) analyze(key); }
+    var m = location.hash.match(/^#project=([^&]+)(?:&decl=(.+))?$/);
+    if (!m) return;
+    var key = decodeURIComponent(m[1]); if (key.length >= 400) return;
+    if (key !== state.project) analyze(key);
+    if (m[2]) { state.tab = 'ask'; state.ask = state.ask || { question: '', answer: '', sources: [], hits: [], via: '' }; render(); focus(decodeURIComponent(m[2])); }
   }
   addEventListener('hashchange', fromHash);
   if (embabel.manifest && embabel.manifest.ready) embabel.manifest.ready.then(fromHash).catch(fromHash); else fromHash();
 })();
 </script>
+<div id="embabel-badge" style="position:fixed;right:12px;bottom:10px;font-size:11.5px;background:#121620;border:1px solid #232a38;border-radius:999px;padding:4px 10px;color:#8a94a6">Built with <a href="https://worlds.embabel.com" target="_blank" rel="noopener" style="color:#8a94a6">Embabel</a></div>
 </body>
 </html>

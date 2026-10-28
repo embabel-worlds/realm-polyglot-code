@@ -1,0 +1,35 @@
+# A project's code, kept searchable by meaning. For each IndexedProject, every type, function, method and
+# constructor becomes one document (code://<declaration id>), tagged `code`. The host renders, ingests and
+# embeds them like any document: an unchanged declaration is skipped by the hash of its text, and one that
+# no longer exists is pruned after a complete run. No entity pass: a declaration already is a graph entity,
+# so a model call per declaration looking for the people and organizations it mentions would find nothing.
+sources:
+  - name: code-declarations
+    lane: documents
+    extractEntities: false
+    from:
+      cypher: |
+        MATCH (ip:IndexedProject)-[:DECLARES]->(d:CodeDeclaration)
+        WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type', 'function', 'method', 'constructor']
+        RETURN ip.key AS project, d.id AS id, d.language AS language, d.kind AS kind, d.name AS name,
+               coalesce(d.owner, '') AS owner, coalesce(d.signature, '') AS signature, coalesce(d.javadoc, '') AS doc,
+               coalesce(d.text, '') AS text, d.path AS path, d.fromLine AS line
+    document:
+      uri: "code://{{ id }}"
+      title: "{{ name if not owner else owner ~ '.' ~ name }} ({{ language }} {{ kind }})"
+      content: |
+        # {{ name if not owner else owner ~ '.' ~ name }}
+
+        A {{ language }} {{ kind }} in {{ path }}, line {{ line }}, of {{ project }}.
+
+        {{ signature }}
+
+        {{ doc }}
+
+        {{ text }}
+      sourceKind: code
+      tags: [code]
+    sync:
+      trigger: scheduled
+      schedule: "0 */15 * * * *"
+      prune: true
