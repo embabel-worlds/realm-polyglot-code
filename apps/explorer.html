@@ -466,8 +466,14 @@
       }).join('');
     });
   }
-  function drawEvidence(rows, sources) {
-    var cited = {}; sources.forEach(function (s, i) { cited[s.id] = i + 1; });
+  /* The numbers an answer actually cites: a source it read but never cited is evidence, not a citation. */
+  function citedNumbers(text) {
+    var nums = {};
+    String(text || '').replace(/\[(\d+(?:\s*[,;]\s*\d+)*)\]/g, function (m, list) { list.split(/[,;]/).forEach(function (x) { nums[Number(x.trim())] = true; }); return m; });
+    return nums;
+  }
+  function drawEvidence(rows, sources, answer) {
+    var nums = citedNumbers(answer), cited = {}; sources.forEach(function (s, i) { if (nums[i + 1]) cited[s.id] = i + 1; });
     $('evidence').innerHTML = '<h3 style="margin-top:0">Closest declarations by meaning</h3>' + (rows.length ? rows.map(function (r) {
       var n = cited[r.id];
       return '<div class="hit' + (n ? ' cited' : '') + '">' + (n ? '<b style="color:var(--accent2)">[' + n + ']</b> ' : '') + lang(r.language) +
@@ -512,9 +518,9 @@
       .then(function (r) {
         if (mine !== asking) return;
         $('answer').innerHTML = '<div class="answer">' + renderAnswer(r.answer, r.sources) + '</div><h3>Cited declarations</h3>' +
-          r.sources.map(function (s, i) { return '<div class="note"><a class="cite" href="' + declLink(s.id) + '">' + (i + 1) + '</a> <a class="mono" href="' + declLink(s.id) + '">' + esc(s.title) + '</a>' + (s.inProject ? '' : ' (another indexed project)') + '</div>'; }).join('') +
+          r.sources.map(function (s, i) { if (!citedNumbers(r.answer)[i + 1]) return ''; return '<div class="note"><a class="cite" href="' + declLink(s.id) + '">' + (i + 1) + '</a> <a class="mono" href="' + declLink(s.id) + '">' + esc(s.title) + '</a>' + (s.inProject ? '' : ' (another indexed project)') + '</div>'; }).join('') +
           '<div class="note">' + esc(r.via) + '</div>';
-        hits.then(function (rows) { if (mine === asking) drawEvidence(rows, r.sources); });
+        hits.then(function (rows) { if (mine === asking) drawEvidence(rows, r.sources, r.answer); });
       }).catch(function (e) { if (mine === asking) $('answer').innerHTML = '<div class="answer">' + esc((e && e.message) || String(e)) + '</div>'; });
   }
 

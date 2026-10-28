@@ -442,9 +442,17 @@ ORDER BY file, line LIMIT 1000</pre></details>
     if (!src) return '<a class="cite off" title="Cites nothing the search returned">' + n + '</a>';
     return '<a class="cite" href="#" data-decl="' + esc(src.id) + '" title="' + esc(src.title) + '">' + n + '</a>';
   }
+  /* The numbers the answer actually cites: a source it read but never cited is evidence, not a citation. */
+  function citedNumbers(text) {
+    var nums = {};
+    String(text || '').replace(/\[(\d+(?:\s*[,;]\s*\d+)*)\]/g, function (m, list) { list.split(/[,;]/).forEach(function (x) { nums[Number(x.trim())] = true; }); return m; });
+    return nums;
+  }
   function sourcesList(a) {
-    if (!a.sources.length) return '';
+    var nums = citedNumbers(a.answer);
+    if (!a.sources.some(function (s, i) { return nums[i + 1]; })) return '';
     return '<h3>Cited declarations</h3>' + a.sources.map(function (s, i) {
+      if (!nums[i + 1]) return '';
       return '<div class="src"><a class="cite" href="#" data-decl="' + esc(s.id) + '">' + (i + 1) + '</a> <a href="#" data-decl="' + esc(s.id) + '" class="mono">' + esc(s.title) + '</a>' +
         (s.inProject ? '' : ' <span class="sub">(another indexed project)</span>') +
         ' · <a href="' + explorerLink(s.id) + '" target="_blank" rel="noopener" class="sub">on the map ↗</a></div>';
@@ -454,7 +462,7 @@ ORDER BY file, line LIMIT 1000</pre></details>
     if (!a.hits) return '<div class="empty">Searching…</div>';
     if (a.hits.error) return '<div class="note err">' + esc(a.hits.error) + '</div>';
     if (!a.hits.length) return '<div class="empty">Nothing in this project’s index is close to that' + (a.indexed === false ? ' — it is not indexed yet (above).' : '.') + '</div>';
-    var cited = {}; a.sources.forEach(function (s, i) { cited[s.id] = i + 1; });
+    var nums = citedNumbers(a.answer), cited = {}; a.sources.forEach(function (s, i) { if (nums[i + 1]) cited[s.id] = i + 1; });
     return a.hits.map(function (r) {
       var n = cited[r.id];
       return '<div class="ev' + (n ? ' cited' : '') + (a.focus && a.focus.id === r.id ? ' focus' : '') + '" data-decl="' + esc(r.id) + '" id="ev-' + esc(r.id) + '">' +
