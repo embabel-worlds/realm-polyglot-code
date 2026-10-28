@@ -406,7 +406,8 @@ ORDER BY file, line LIMIT 1000</pre></details>
      answers from the same index and returns the sources it read, numbered as the answer cites them; each
      source's uri is code://<declaration id>, so a citation IS a declaration. If that answer cannot be had,
      the assistant is asked instead, given the evidence numbered, and its [n] are matched to it. */
-  var EXPLORER = '/apps/realm-polyglot-code/explorer.html';
+  /* Beside this app, wherever the realm's apps are served. */
+  var EXPLORER = 'explorer.html';
   function codePrefixes(project) {
     var hostRepo = project.replace(/^https?:\/\//, '').replace(/\.git$/, '').split('@')[0];
     return ['code://' + hostRepo + '@', 'code://' + project + '!'];
