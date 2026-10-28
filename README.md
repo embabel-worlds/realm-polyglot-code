@@ -12,7 +12,8 @@ workspace when a question reaches it. Nothing is ingested.
   TypeScript frontend, or a Java service and its Kotlin client.
 - **Views:** `ProjectLanguages`, `Routes` (every HTTP endpoint, in any of a dozen frameworks),
   `WhereDefined`, `WhoCalls`, `SharedNames`, `ExternalDependencies`, `DocCoverage`,
-  `LargestFunctions`.
+  `LargestFunctions`; and how the code holds together, after shinar's code realm: `WhoUses`,
+  `PartDependencies`, `MutualDependencies`, `Hotspots`, `UnusedTypes`, `Impact`.
 - **Java metrics:** `JavaMethodMetrics` (per method: lines, ifs, loops, switches, ternaries, try,
   catch, instanceof, casts), `JavaConstructDensity` (each construct per 100 lines), `JavaCastTargets`
   (the types cast to, most first) and `JavaCasts` (every cast, with its method and line). They count

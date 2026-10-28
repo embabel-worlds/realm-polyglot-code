@@ -1,0 +1,139 @@
+# How a codebase holds together, in every language tree-sitter reads: who uses a type, which parts
+# lean on which, what the most code depends on, what nothing uses, and what a change would reach.
+# The questions are the ones shinar's code realm answers for one repository, asked here of any
+# project in fourteen languages. Every answer rests on rows the source-tree kind reads, and every
+# row is matched by NAME (`resolution: name`): two types with one name share their uses, and each
+# view says where that inflates a count. Java's rows come from its own kinds and are not counted
+# here yet.
+#
+# A part of a project is a DIRECTORY: the folder a file is in.
+
+- name: WhoUses
+  description: >-
+    Every place a type is used, in every language: as a parameter's, field's or return type, a base
+    class, a generic argument or an annotation ('type'), or constructed or called by its name
+    ('call'), with the declaration it is used in. Matched by NAME: a type of the same name declared
+    elsewhere shares these uses — WhereDefined says how many declare it.
+  params:
+    project: { type: string, description: "Project key: a repository URL (optionally @ref) or a folder." }
+    name: { type: string, description: "The type's name, exactly as declared (case matters)." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:REFERENCES]->(r:SourceReference {name: $name})
+    RETURN r.language AS language, 'type' AS how, r.enclosing AS usedIn, r.path AS file, r.line AS line, r.url AS url
+    UNION ALL
+    MATCH (p:CodeProject {key: $project})-[:CALLS]->(c:CallSite {method: $name})
+    RETURN c.language AS language, 'call' AS how, c.enclosing AS usedIn, c.path AS file, c.line AS line, c.url AS url
+
+- name: PartDependencies
+  description: >-
+    The shape of a project: which directories use types declared in which others, with how many
+    uses, how many distinct types, and a few of them. Only a name declared in exactly one directory
+    is counted, so two types sharing a name never join two parts that do not touch. The first answer
+    to "what does this repository look like?".
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'union', 'type']
+    WITH p, d.name AS type,
+         collect(DISTINCT CASE WHEN d.path CONTAINS '/' THEN substring(d.path, 0, size(d.path) - size(split(d.path, '/')[-1]) - 1) ELSE '.' END) AS homes
+    WHERE size(homes) = 1
+    MATCH (p)-[:REFERENCES]->(r:SourceReference {name: type})
+    WITH homes[0] AS to, type,
+         CASE WHEN r.path CONTAINS '/' THEN substring(r.path, 0, size(r.path) - size(split(r.path, '/')[-1]) - 1) ELSE '.' END AS from
+    WHERE from <> to
+    RETURN from, to, count(*) AS uses, count(DISTINCT type) AS types, collect(DISTINCT type)[0..5] AS examples
+    ORDER BY uses DESC LIMIT 300
+
+- name: MutualDependencies
+  description: >-
+    Pairs of directories that use each other's types: the shortest dependency cycles, and the first
+    place to look for a part that should be split or merged. Each pair is listed once, with the uses
+    each way and an example type each way. Counted as PartDependencies counts (a name declared in one
+    directory only). Longer rings (A uses B uses C uses A) are not listed.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'union', 'type']
+    WITH p, d.name AS type,
+         collect(DISTINCT CASE WHEN d.path CONTAINS '/' THEN substring(d.path, 0, size(d.path) - size(split(d.path, '/')[-1]) - 1) ELSE '.' END) AS homes
+    WHERE size(homes) = 1
+    MATCH (p)-[:REFERENCES]->(r:SourceReference {name: type})
+    WITH homes[0] AS to, type,
+         CASE WHEN r.path CONTAINS '/' THEN substring(r.path, 0, size(r.path) - size(split(r.path, '/')[-1]) - 1) ELSE '.' END AS from
+    WHERE from <> to
+    WITH from, to, count(*) AS uses, collect(DISTINCT type)[0] AS example
+    WITH collect({from: from, to: to, uses: uses, example: example}) AS edges
+    UNWIND edges AS e
+    WITH e, [x IN edges WHERE x.from = e.to AND x.to = e.from] AS back
+    WHERE size(back) > 0 AND e.from < e.to
+    RETURN e.from AS a, e.to AS b, e.uses AS aUsesB, e.example AS exampleAtoB, back[0].uses AS bUsesA, back[0].example AS exampleBtoA
+    ORDER BY aUsesB + bUsesA DESC
+
+- name: Hotspots
+  description: >-
+    The types the most files in OTHER directories use: what a project leans on, and where a change
+    costs most. `sameName` above 1 means other types share the name, so the count may include their
+    uses. Test files count as users; filter on the file names if that matters.
+  params:
+    project: { type: string, description: "Project key." }
+    limit: { type: int, description: "How many types (1 to 50).", default: 15 }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'union', 'type']
+    WITH p, d.name AS type, collect(d) AS declared,
+         collect(DISTINCT CASE WHEN d.path CONTAINS '/' THEN substring(d.path, 0, size(d.path) - size(split(d.path, '/')[-1]) - 1) ELSE '.' END) AS homes
+    MATCH (p)-[:REFERENCES]->(r:SourceReference {name: type})
+    WITH type, declared, homes, r,
+         CASE WHEN r.path CONTAINS '/' THEN substring(r.path, 0, size(r.path) - size(split(r.path, '/')[-1]) - 1) ELSE '.' END AS dir
+    WHERE NOT dir IN homes
+    WITH type, declared, count(DISTINCT r.path) AS files, count(DISTINCT dir) AS directories
+    RETURN type, declared[0].language AS language, declared[0].kind AS kind, declared[0].path AS file, declared[0].fromLine AS line,
+           files, directories, size(declared) AS sameName, declared[0].url AS url
+    ORDER BY files DESC LIMIT $limit
+
+- name: UnusedTypes
+  description: >-
+    Types that no other file names: candidates to delete, or to check for wiring a name cannot show
+    — a framework that finds them by annotation or by convention, reflection, a configuration file, a
+    template. A type carrying an annotation, decorator or attribute is left out, since that is how
+    frameworks find what they wire. Not a list of dead code: a list of where to look.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'union', 'type']
+      AND size(coalesce(d.annotations, [])) = 0
+    OPTIONAL MATCH (p)-[:REFERENCES]->(r:SourceReference {name: d.name}) WHERE r.path <> d.path
+    WITH p, d, count(r) AS referenced
+    WHERE referenced = 0
+    OPTIONAL MATCH (p)-[:CALLS]->(c:CallSite {method: d.name}) WHERE c.path <> d.path
+    WITH p, d, count(c) AS called
+    WHERE called = 0
+    OPTIONAL MATCH (p)-[:IMPORTS]->(i:SourceImport) WHERE d.name IN i.names AND i.path <> d.path
+    WITH d, count(i) AS imported
+    WHERE imported = 0
+    RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS type,
+           d.path AS file, d.fromLine AS line, d.url AS url
+    ORDER BY file, line LIMIT 500
+
+- name: Impact
+  description: >-
+    What a change to a type could reach. Depth 1: the files that use it. Depth 2: the files that use
+    a type declared in a depth-1 file. Each row names the type that carries the reach (`via`).
+    Matched by NAME, as WhoUses is, so a shared name widens the reach. At most 500 files.
+  params:
+    project: { type: string, description: "Project key." }
+    name: { type: string, description: "The type's name, exactly as declared." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:REFERENCES]->(r:SourceReference {name: $name})
+    RETURN DISTINCT 1 AS depth, r.path AS file, $name AS via, r.language AS language
+    UNION
+    MATCH (p:CodeProject {key: $project})-[:REFERENCES]->(r1:SourceReference {name: $name})
+    WITH p, collect(DISTINCT r1.path) AS first
+    MATCH (p)-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.path IN first AND d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'union', 'type']
+    MATCH (p)-[:REFERENCES]->(r2:SourceReference {name: d.name})
+    WHERE NOT r2.path IN first
+    RETURN DISTINCT 2 AS depth, r2.path AS file, d.name AS via, r2.language AS language
