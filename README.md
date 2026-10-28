@@ -30,9 +30,11 @@ workspace when a question reaches it. Nothing is ingested.
   declarations whose text changed: a new commit or code that moves re-embeds nothing else, a deleted
   or renamed declaration is pruned. `realm_sync_documents` runs it at once. `SearchCode` and `SearchAndCallers` find
   code by what it does and lead back to the live declaration; `Declaration` reads one by id. The Atlas
-  and Explorer apps' **Ask** answers a question from those documents with the appliance's document
-  Q&A (or, when that gives no grounded answer, the assistant handed the closest declarations
-  numbered), and every citation is a declaration: click it to focus it in the Atlas or on the Explorer's map.
+  and Explorer apps' **Ask** finds the code by name, live (`MatchDeclarations`: the question's words against every declaration's
+  name, path and code, so it answers before anything is embedded), and by meaning (`SearchCode`), merged by declaration; then
+  `AnswerFromCode` hands the model the best declarations' code, callers and callees, numbered, and the answer explains how the code
+  works, citing each one. `IndexState` says how much of a project is indexed. Every citation is a declaration: click it to focus it in
+  the Atlas (`AskContext`: its code, callers and callees) or on the Explorer's map.
 - **Route styles are data:** `reference/route-styles.yml` says how each framework declares a route.
   Add a row to teach it another.
 

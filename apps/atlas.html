@@ -108,6 +108,13 @@
   <h3>Honest about calls</h3>
   <p>Syntax names a call's target but cannot say which function it is. Outside Java a call is matched by name, and every call row says so
   (resolution: name). "Who calls save" lists every call to something called save.</p>
+  <h3>Asking</h3>
+  <p>Ask finds the code two ways at once and merges them by declaration. By name: the question's words, stemmed and split, against
+  every declaration's name, owner, path and code, read live (MatchDeclarations), so it answers the moment a project is added. By meaning:
+  the code index, which keeps each type, function and method as a document and embeds it on a 15-minute schedule (SearchCode); the panel
+  says how many of the project's declarations it holds so far (IndexState). The best eight go to the model numbered, each with its code
+  and what calls it and what it calls (AnswerFromCode, one synthesize call), and it explains how the code works, citing each declaration
+  it relied on. Calls are matched by name. An app cannot start the code index itself, so a newly added project waits for the next run.</p>
   <h3>Every view, with the Cypher that runs</h3>
   <details><summary><b>ProjectLanguages</b> — What a project is written in: files, lines and syntax errors per language. The first question to ask of an unfamiliar repository.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]-&gt;(s:Source)
 RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines, sum(coalesce(s.errors, 0)) AS syntaxErrors</pre></details>
