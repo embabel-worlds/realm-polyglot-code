@@ -44,7 +44,7 @@
     tree — no embeddings, so it answers the moment a project is indexed, before any document exists.
     `terms` is the question's words, lower case, space separated, already stemmed ('security
     configuration', 'jwt validat'): a term counts where the declaration's name holds it (most), its
-    owner or its path, or its code (least). SecurityConfiguration matches 'security configuration';
+    owner or its path, or — only where the name holds none — its code (least). SecurityConfiguration matches 'security configuration';
     test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.
   params:
     project: { type: string, description: "Project key, as it was indexed." }
@@ -64,7 +64,7 @@
          size([t IN ts WHERE toLower(coalesce(d.text, '')) CONTAINS t]) AS inText
     WHERE size(ts) > 0 AND inName + inOwner + inText > 0
     WITH d, key, inName, inOwner, inPath, inText,
-         (3.0 * inName + 1.0 * inOwner + 0.5 * inPath + 0.75 * inText) / size(ts)
+         (3.0 * inName + 1.0 * inOwner + 0.5 * inPath + CASE WHEN inName = 0 THEN 0.75 * inText ELSE 0.0 END) / size(ts)
          + CASE WHEN inName = size(ts) THEN 1.0 ELSE 0.0 END
          + CASE WHEN d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type'] THEN 0.5
                 WHEN d.kind = 'constructor' THEN -0.5 ELSE 0.0 END

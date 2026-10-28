@@ -498,15 +498,15 @@
     if (held < n) return held.toLocaleString() + ' of ' + n.toLocaleString() + ' declarations searchable by meaning; the rest join on a coming run (next at ' + next + '). Names and code are read live either way.' + last;
     return 'All ' + n.toLocaleString() + ' declarations searchable by meaning, and read live by name.' + last;
   }
-  /* Asking needs the project to be an IndexedProject: the views read its declarations through it. */
+  /* Asking needs the project to be an IndexedProject: the views read its declarations through it. Checked with
+     IndexedProjects (one stored read), not IndexState, whose count of documents can take a while on a busy index. */
   function ensureIndexed(project, label) {
-    return indexState(project).then(function (st) {
-      if (st.registered) return st;
+    embabel.cache.invalidate('view', 'IndexedProjects', {});
+    return view('IndexedProjects', {}).then(function (rows) {
+      if (rows.some(function (r) { return r.project === project; })) return false;
       return fetch('/api/v1/tools/create_entry', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'IndexedProject', data: { key: project, label: label } }) })
-        .then(function (r) { if (!r.ok) throw new Error('The appliance would not record the project for asking (' + r.status + ').'); })
-        .then(function () { embabel.cache.invalidate('view', 'IndexedProjects', {}); return indexState(project); })
-        .then(function (s) { s.justRegistered = true; return s; });
+        .then(function (r) { if (!r.ok) throw new Error('The appliance would not record the project for asking (' + r.status + ').'); return true; });
     });
   }
   /* Both finders at once, merged by id: reciprocal rank, so a declaration found by name AND by meaning rises. */
@@ -584,13 +584,13 @@
     var mine = ++asking, project = state.project;
     $('answer').innerHTML = '<div class="answer note">Finding the code by name and by meaning…</div>';
     $('evidence').innerHTML = '<div class="empty">Searching…</div>';
-    ensureIndexed(project, project.replace(/^https:\/\/github\.com\//, '')).then(function (st) {
-      if (mine === asking) drawAskIndex(st);
-      return findCode(project, question).then(function (found) { found.indexed = st.indexed; return found; });
+    ensureIndexed(project, project.replace(/^https:\/\/github\.com\//, '')).then(function () {
+      indexState(project).then(function (st) { if (mine === asking) drawAskIndex(st); }).catch(function () { /* a hint only */ });
+      return findCode(project, question);
     }).then(function (found) {
       if (mine !== asking) return;
       if (!found.hits.length) {
-        found.empty = 'Nothing in this project has those words in its names or code' + (found.indexed ? ', and nothing in its index is close in meaning.' : ', and its code index has not run yet, so nothing can be found by meaning. Try the names you expect, or ask again after the next run.');
+        found.empty = 'Nothing in this project has those words in its names or code' + (found.byMeaning ? ', and nothing in its index is close in meaning.' : ', and nothing could be found by meaning: its code index may not have run yet (see above). Try the names you expect, or ask again after the next run.');
         drawEvidence(found, [], '');
         $('answer').innerHTML = '<div class="answer">' + esc(found.empty) + '</div>';
         return;

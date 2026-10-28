@@ -205,7 +205,7 @@ WITH ip IS NOT NULL AS registered, count(d) AS declarations
 OPTIONAL MATCH (doc:Document)
 WHERE doc.uri STARTS WITH &#x27;code://&#x27; + CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27;
 RETURN registered, declarations, count(doc) AS indexed, max(doc.ingestionEpochMs) AS lastIndexedAt</pre></details>
-  <details><summary><b>MatchDeclarations</b> — The declarations of an indexed project whose words match a question&#x27;s, read live from the source tree — no embeddings, so it answers the moment a project is indexed, before any document exists. `terms` is the question&#x27;s words, lower case, space separated, already stemmed (&#x27;security configuration&#x27;, &#x27;jwt validat&#x27;): a term counts where the declaration&#x27;s name holds it (most), its owner or its path, or its code (least). SecurityConfiguration matches &#x27;security configuration&#x27;; test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+  <details><summary><b>MatchDeclarations</b> — The declarations of an indexed project whose words match a question&#x27;s, read live from the source tree — no embeddings, so it answers the moment a project is indexed, before any document exists. `terms` is the question&#x27;s words, lower case, space separated, already stemmed (&#x27;security configuration&#x27;, &#x27;jwt validat&#x27;): a term counts where the declaration&#x27;s name holds it (most), its owner or its path, or — only where the name holds none — its code (least). SecurityConfiguration matches &#x27;security configuration&#x27;; test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
 WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;, &#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;]
 WITH ip, d ORDER BY d.fromLine, d.id
 WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
@@ -219,7 +219,7 @@ WITH d, key, ts, size([t IN ts WHERE toLower(d.name) CONTAINS t]) AS inName,
      size([t IN ts WHERE toLower(coalesce(d.text, &#x27;&#x27;)) CONTAINS t]) AS inText
 WHERE size(ts) &gt; 0 AND inName + inOwner + inText &gt; 0
 WITH d, key, inName, inOwner, inPath, inText,
-     (3.0 * inName + 1.0 * inOwner + 0.5 * inPath + 0.75 * inText) / size(ts)
+     (3.0 * inName + 1.0 * inOwner + 0.5 * inPath + CASE WHEN inName = 0 THEN 0.75 * inText ELSE 0.0 END) / size(ts)
      + CASE WHEN inName = size(ts) THEN 1.0 ELSE 0.0 END
      + CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;] THEN 0.5
             WHEN d.kind = &#x27;constructor&#x27; THEN -0.5 ELSE 0.0 END
@@ -570,15 +570,15 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
     if (held < n) return held.toLocaleString() + ' of ' + n.toLocaleString() + ' declarations searchable by meaning; the rest join on a coming run (next at ' + next + '). Names and code are read live either way.' + last;
     return 'All ' + n.toLocaleString() + ' declarations searchable by meaning, and read live by name.' + last;
   }
-  /* Asking needs the project to be an IndexedProject: the views read its declarations through it. */
+  /* Asking needs the project to be an IndexedProject: the views read its declarations through it. Checked with
+     IndexedProjects (one stored read), not IndexState, whose count of documents can take a while on a busy index. */
   function ensureIndexed(project, label) {
-    return indexState(project).then(function (st) {
-      if (st.registered) return st;
+    embabel.cache.invalidate('view', 'IndexedProjects', {});
+    return view('IndexedProjects', {}).then(function (rows) {
+      if (rows.some(function (r) { return r.project === project; })) return false;
       return fetch('/api/v1/tools/create_entry', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'IndexedProject', data: { key: project, label: label } }) })
-        .then(function (r) { if (!r.ok) throw new Error('The appliance would not record the project for asking (' + r.status + ').'); })
-        .then(function () { embabel.cache.invalidate('view', 'IndexedProjects', {}); return indexState(project); })
-        .then(function (s) { s.justRegistered = true; return s; });
+        .then(function (r) { if (!r.ok) throw new Error('The appliance would not record the project for asking (' + r.status + ').'); return true; });
     });
   }
   /* Both finders at once, merged by id: reciprocal rank, so a declaration found by name AND by meaning rises. */
@@ -706,14 +706,14 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
     var project = state.project;
     var a = state.ask = { question: question, status: 'Finding the code by name and by meaning…', answer: null, sources: [], hits: null, focus: null, via: '', found: { byName: 0, byMeaning: 0 } };
     drawAsk();
-    ensureIndexed(project, short(project)).then(function (st) {
-      state.index = st; drawIndex();
+    ensureIndexed(project, short(project)).then(function () {
+      indexState(project).then(function (st) { if (state.project === project) { state.index = st; drawIndex(); } }).catch(function () { /* a hint only */ });
       return findCode(project, question);
     }).then(function (found) {
       if (state.ask !== a) return;
       a.hits = found.hits; a.found = found;
       if (!found.hits.length) {
-        a.empty = 'Nothing in ' + short(project) + ' has those words in its names or code' + (state.index && state.index.indexed ? ', and nothing in its index is close in meaning.' : ', and its code index has not run yet, so nothing can be found by meaning. Try the names you expect, or ask again after the next run.');
+        a.empty = 'Nothing in ' + short(project) + ' has those words in its names or code' + (found.byMeaning || (state.index && state.index.indexed) ? ', and nothing in its index is close in meaning.' : ', and nothing could be found by meaning: its code index may not have run yet (see above). Try the names you expect, or ask again after the next run.');
         a.answer = ''; a.error = a.empty; drawAsk(); return;
       }
       a.status = 'Reading the code of the ' + Math.min(ANSWER_FROM, found.hits.length) + ' best declarations, with their callers and callees, and writing the answer…';
