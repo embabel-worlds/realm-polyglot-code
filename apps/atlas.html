@@ -109,11 +109,8 @@
   <p>Syntax names a call's target but cannot say which function it is. Outside Java a call is matched by name, and every call row says so
   (resolution: name). "Who calls save" lists every call to something called save.</p>
   <h3>Every view, with the Cypher that runs</h3>
-  <details><summary><b>ProjectLanguages</b> — What a project is written in: files, lines and syntax errors per language (Java&#x27;s files counted by the types they declare). The first question to ask of an unfamiliar repository.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]-&gt;(s:Source)
-RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines, sum(coalesce(s.errors, 0)) AS syntaxErrors
-UNION ALL
-MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaCodeType)
-RETURN &#x27;java&#x27; AS language, count(DISTINCT t.path) AS files, null AS lines, 0 AS syntaxErrors</pre></details>
+  <details><summary><b>ProjectLanguages</b> — What a project is written in: files, lines and syntax errors per language. The first question to ask of an unfamiliar repository.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]-&gt;(s:Source)
+RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines, sum(coalesce(s.errors, 0)) AS syntaxErrors</pre></details>
   <details><summary><b>Routes</b> — Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the handler and the line (`test` marks one declared in a test file). Also the paths routes sit under (role prefix), whole REST resources (role resource) and calls the code makes to other services (role client). Matched by the route styles in reference data (RouteStyle); a framework missing there is a row to add, not code to write. Paths are as each route writes them: a route&#x27;s full path is the prefix row in the same file (a class&#x27;s @RequestMapping, [Route] or @Controller) joined to its own. A Rails or DRF resource is one row for the REST resource it declares.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
 WHERE size(d.annotationText) &gt; 0
 MATCH (s:RouteStyle {shape: &#x27;annotation&#x27;})
@@ -185,6 +182,33 @@ RETURN &#x27;java&#x27; AS language, t.kind AS kind, &#x27;&#x27; AS owner, t.na
 RETURN c.language AS language, c.receiver AS receiver, c.method AS method, c.arguments AS arguments,
        c.enclosing AS caller, c.resolution AS resolution, c.path AS file, c.line AS line, c.url AS url
 ORDER BY file, line LIMIT 1000</pre></details>
+  <details><summary><b>SearchCode</b> — Code found by what it does: the declarations of an indexed project whose purpose is closest to a description, in every language tree-sitter reads, best first, with the declaration&#x27;s live row. Ask in words (&quot;retry with backoff&quot;, &quot;where money is formatted&quot;), not names; WhereDefined finds names. A project is searchable once it is an IndexedProject and the code-declarations source has run. `id` is the declaration&#x27;s key, the same one its document is named by (code://&lt;id&gt;), which a new commit or a move leaves as it is.</summary><pre class="mono">MATCH (c:Concept {value: $query})-[r:RELEVANT_TO]-&gt;(doc:CodeSearchHit)
+WHERE &#x27;code&#x27; IN doc.tags AND doc.uri STARTS WITH &#x27;code://&#x27; + CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27;
+WITH doc, r ORDER BY r.score DESC LIMIT 20
+WITH collect({key: substring(doc.uri, 7), score: r.score}) AS hits
+MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+WITH hits, ip, d ORDER BY d.fromLine, d.id
+WITH hits, ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
+UNWIND range(0, size(same) - 1) AS i
+WITH hits, same[i] AS d, CASE WHEN project STARTS WITH &#x27;https://&#x27; THEN substring(project, 8) ELSE project END + &#x27;!&#x27; + path + &#x27;#&#x27; + kind + &#x27;:&#x27;
+         + CASE WHEN owner = &#x27;&#x27; THEN name ELSE owner + &#x27;.&#x27; + name END + CASE WHEN i = 0 THEN &#x27;&#x27; ELSE &#x27;~&#x27; + toString(i + 1) END AS key
+UNWIND hits AS h
+WITH h, d, key WHERE h.key = key
+RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name,
+       d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url, h.score AS score, key AS id
+ORDER BY score DESC</pre></details>
+  <details><summary><b>Declaration</b> — One declaration of an indexed project by its key, as a code search hit or a cited answer names it (code://&lt;key&gt;): its language, kind, name, signature, doc and line as the project reads now. No row when the project no longer declares it: it was deleted or renamed since it was indexed.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+WITH ip, d ORDER BY d.fromLine, d.id
+WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
+UNWIND range(0, size(same) - 1) AS i
+WITH same[i] AS d, CASE WHEN project STARTS WITH &#x27;https://&#x27; THEN substring(project, 8) ELSE project END + &#x27;!&#x27; + path + &#x27;#&#x27; + kind + &#x27;:&#x27;
+         + CASE WHEN owner = &#x27;&#x27; THEN name ELSE owner + &#x27;.&#x27; + name END + CASE WHEN i = 0 THEN &#x27;&#x27; ELSE &#x27;~&#x27; + toString(i + 1) END AS key
+WITH d, key WHERE key = $id
+RETURN key AS id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name,
+       d.name AS simpleName, d.owner AS owner, d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.toLine AS toLine, d.url AS url</pre></details>
+  <details><summary><b>IndexedProjects</b> — The projects kept searchable by meaning: each one&#x27;s declarations are read by the code-declarations documents source every 15 minutes, and only declarations whose text changed are embedded again.</summary><pre class="mono">MATCH (ip:IndexedProject)
+RETURN ip.key AS project, ip.label AS label
+ORDER BY project</pre></details>
   <h3>What an empty panel means</h3>
   <p>The views read every file of the languages they cover, so an empty answer means none matched — no endpoint in a framework the route
   styles know, no name shared across languages. A repository that could not be read says so instead.</p>
@@ -409,8 +433,7 @@ ORDER BY file, line LIMIT 1000</pre></details>
   /* Beside this app, wherever the realm's apps are served. */
   var EXPLORER = 'explorer.html';
   function codePrefixes(project) {
-    var hostRepo = project.replace(/^https?:\/\//, '').replace(/\.git$/, '').split('@')[0];
-    return ['code://' + hostRepo + '@', 'code://' + project + '!'];
+    return ['code://' + project.replace(/^https:\/\//, '') + '!'];
   }
   function inProject(uri) { return codePrefixes(state.project).some(function (p) { return String(uri || '').indexOf(p) === 0; }); }
   function declId(uri) { return String(uri || '').replace(/^code:\/\//, ''); }
@@ -473,7 +496,7 @@ ORDER BY file, line LIMIT 1000</pre></details>
   function explorerLink(id) { return EXPLORER + '#/p/' + encodeURIComponent(state.project) + '/decl/' + encodeURIComponent(id); }
   function focusCard(f) {
     if (f.loading) return '<div class="focus-card"><span class="sub">Reading the declaration…</span></div>';
-    if (f.missing) return '<div class="focus-card"><b class="mono">' + esc(f.id) + '</b><div class="note warn">Not in the project as read now: the code moved since it was indexed. The next index run (every 15 minutes) catches up.</div></div>';
+    if (f.missing) return '<div class="focus-card"><b class="mono">' + esc(f.id) + '</b><div class="note warn">Not in the project as read now: it was deleted or renamed since it was indexed. The next index run (every 15 minutes) catches up.</div></div>';
     var d = f.row;
     return '<div class="focus-card" id="focus"><div>' + lang(d.language) + ' <b class="mono">' + esc(d.name) + '</b> <span class="sub">' + esc(d.kind) + '</span></div>' +
       (d.signature ? '<div class="mono" style="margin:6px 0;overflow-wrap:anywhere">' + esc(d.signature) + '</div>' : '') +

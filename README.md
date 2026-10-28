@@ -25,7 +25,10 @@ workspace when a question reaches it. Nothing is ingested.
   hold an `if` and a cast.
 - **Search and ask, by meaning:** mark a project as an `IndexedProject` and the `code-declarations`
   documents source (`sources.yml`) keeps each of its types, functions and methods as a document
-  (`code://<declaration id>`, tagged `code`, no entity pass). `SearchCode` and `SearchAndCallers` find
+  (`code://<project>!<path>#<kind>:<owner.name>`, tagged `code`, no entity pass). A document is named by
+  what the declaration is and its text carries no line numbers, so each 15-minute run embeds only the
+  declarations whose text changed: a new commit or code that moves re-embeds nothing else, a deleted
+  or renamed declaration is pruned. `realm_sync_documents` runs it at once. `SearchCode` and `SearchAndCallers` find
   code by what it does and lead back to the live declaration; `Declaration` reads one by id. The Atlas
   and Explorer apps' **Ask** answers a question from those documents with the appliance's document
   Q&A (or, when that gives no grounded answer, the assistant handed the closest declarations

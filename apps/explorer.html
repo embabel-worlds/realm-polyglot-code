@@ -435,7 +435,7 @@
   function showDeclaration(id) {
     say('Finding the declaration…');
     return view('Declaration', { project: state.project, id: id }).then(function (rows) {
-      if (!rows.length) { say('That declaration is not in the project as read now: the code moved since it was indexed.', 'error'); return; }
+      if (!rows.length) { say('That declaration is not in the project as read now: it was deleted or renamed since it was indexed.', 'error'); return; }
       var d = rows[0], part = dirOf(d.file);
       selectPart(part);
       var node = document.querySelector('.node[data-part="' + (window.CSS && CSS.escape ? CSS.escape(part) : part) + '"]');
@@ -452,8 +452,7 @@
      `code` tag, answers from the same index and returns its sources numbered as it cites them, each a
      code://<declaration id>. If that answer cannot be had, the assistant is given the evidence numbered. */
   function codePrefixes(project) {
-    var hostRepo = project.replace(/^https?:\/\//, '').replace(/\.git$/, '').split('@')[0];
-    return ['code://' + hostRepo + '@', 'code://' + project + '!'];
+    return ['code://' + project.replace(/^https:\/\//, '') + '!'];
   }
   function inProject(uri) { return codePrefixes(state.project).some(function (p) { return String(uri || '').indexOf(p) === 0; }); }
   function declLink(id) { return '#/p/' + encodeURIComponent(state.project) + '/decl/' + encodeURIComponent(id); }

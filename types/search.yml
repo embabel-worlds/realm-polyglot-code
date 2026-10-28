@@ -1,7 +1,7 @@
 # Search a project's code by what it does. A project the user marks (IndexedProject) has its types,
 # functions, methods and constructors kept as documents by the `code-declarations` source
 # (sources.yml), one per declaration, re-read on a schedule: a declaration whose text has not changed is
-# not ingested again, and one that is gone is pruned. The appliance's document index searches them; the
+# not ingested again, whatever commit it is read at or line it has moved to, and one that is gone is pruned. The appliance's document index searches them; the
 # views (SearchCode, SearchAndCallers) lead each hit back to the live declaration and the graph around it.
 
 - name: IndexedProject
@@ -29,7 +29,7 @@
 - name: CodeSearchHit
   visibility: internal
   userAnchor: false
-  description: "A declaration's document in the code search index, found by MEANING from a free-text Concept via RELEVANT_TO (via:'keyword' for its words). Always narrow to code and to one project: WHERE 'code' IN h.tags AND h.uri STARTS WITH 'code://<host/repo>@'. The SearchCode view does both and leads to the live declaration. Per-match data on the EDGE: r.score, r.rank."
+  description: "A declaration's document in the code search index, found by MEANING from a free-text Concept via RELEVANT_TO (via:'keyword' for its words). Always narrow to code and to one project: WHERE 'code' IN h.tags AND h.uri STARTS WITH 'code://<project key without https://>!'. The SearchCode view does both and leads to the live declaration. Per-match data on the EDGE: r.score, r.rank."
   virtualJoins:
     - anchorLabel: Concept
       relationship: RELEVANT_TO
@@ -47,6 +47,6 @@
       description: "Code whose words match a phrase, with via:'keyword' on the edge."
   properties:
     id: { identity: true, description: "The document's id." }
-    uri: "code://<declaration id>: the declaration it holds."
+    uri: "code://<project>!<path>#<kind>:<owner.name>, with ~2, ~3 for a second and third of one name in a file: the declaration it holds, named by what it is, not by commit or line."
     title: "Its name, language and kind."
     tags: { cardinality: LIST, description: "`code` for every document of the code search source." }

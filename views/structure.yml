@@ -143,19 +143,27 @@
     Code found by what it does: the declarations of an indexed project whose purpose is closest to a
     description, in every language tree-sitter reads, best first, with the declaration's live row. Ask in
     words ("retry with backoff", "where money is formatted"), not names; WhereDefined finds names. A
-    project is searchable once it is an IndexedProject and the code-declarations source has run.
+    project is searchable once it is an IndexedProject and the code-declarations source has run. `id` is
+    the declaration's key, the same one its document is named by (code://<id>), which a new commit or a
+    move leaves as it is.
   params:
     project: { type: string, description: "Project key, as it was indexed." }
     query: { type: string, description: "What the code does, in words." }
   cypher: |
     MATCH (c:Concept {value: $query})-[r:RELEVANT_TO]->(doc:CodeSearchHit)
-    WHERE 'code' IN doc.tags AND (doc.uri STARTS WITH 'code://' + split(replace(replace($project, 'https://', ''), '.git', ''), '@')[0] + '@'
-       OR doc.uri STARTS WITH 'code://' + $project + '!')
+    WHERE 'code' IN doc.tags AND doc.uri STARTS WITH 'code://' + CASE WHEN $project STARTS WITH 'https://' THEN substring($project, 8) ELSE $project END + '!'
     WITH doc, r ORDER BY r.score DESC LIMIT 20
-    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
-    WHERE 'code://' + d.id = doc.uri
+    WITH collect({key: substring(doc.uri, 7), score: r.score}) AS hits
+    MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
+    WITH hits, ip, d ORDER BY d.fromLine, d.id
+    WITH hits, ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, '') AS owner, d.name AS name, collect(d) AS same
+    UNWIND range(0, size(same) - 1) AS i
+    WITH hits, same[i] AS d, CASE WHEN project STARTS WITH 'https://' THEN substring(project, 8) ELSE project END + '!' + path + '#' + kind + ':'
+             + CASE WHEN owner = '' THEN name ELSE owner + '.' + name END + CASE WHEN i = 0 THEN '' ELSE '~' + toString(i + 1) END AS key
+    UNWIND hits AS h
+    WITH h, d, key WHERE h.key = key
     RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS name,
-           d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url, r.score AS score, d.id AS id
+           d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url, h.score AS score, key AS id
     ORDER BY score DESC
 
 - name: SearchAndCallers
@@ -167,34 +175,45 @@
     query: { type: string, description: "What the code does, in words." }
   cypher: |
     MATCH (c:Concept {value: $query})-[r:RELEVANT_TO]->(doc:CodeSearchHit)
-    WHERE 'code' IN doc.tags AND (doc.uri STARTS WITH 'code://' + split(replace(replace($project, 'https://', ''), '.git', ''), '@')[0] + '@'
-       OR doc.uri STARTS WITH 'code://' + $project + '!')
+    WHERE 'code' IN doc.tags AND doc.uri STARTS WITH 'code://' + CASE WHEN $project STARTS WITH 'https://' THEN substring($project, 8) ELSE $project END + '!'
     WITH doc, r ORDER BY r.score DESC LIMIT 8
-    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
-    WHERE 'code://' + d.id = doc.uri
-    MATCH (p)-[:CALLS]->(call:CallSite {method: d.name})
-    RETURN d.name AS found, d.path AS declaredIn, d.fromLine AS declaredAt, r.score AS score,
+    WITH collect({key: substring(doc.uri, 7), score: r.score}) AS hits
+    MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
+    WITH hits, ip, d ORDER BY d.fromLine, d.id
+    WITH hits, ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, '') AS owner, d.name AS name, collect(d) AS same
+    UNWIND range(0, size(same) - 1) AS i
+    WITH hits, same[i] AS d, CASE WHEN project STARTS WITH 'https://' THEN substring(project, 8) ELSE project END + '!' + path + '#' + kind + ':'
+             + CASE WHEN owner = '' THEN name ELSE owner + '.' + name END + CASE WHEN i = 0 THEN '' ELSE '~' + toString(i + 1) END AS key
+    UNWIND hits AS h
+    WITH h, d, key WHERE h.key = key
+    MATCH (p:CodeProject {key: $project})-[:CALLS]->(call:CallSite {method: d.name})
+    RETURN d.name AS found, d.path AS declaredIn, d.fromLine AS declaredAt, h.score AS score,
            call.enclosing AS calledFrom, call.path AS file, call.line AS line, call.language AS language
     ORDER BY score DESC, file, line LIMIT 200
 
 - name: Declaration
   description: >-
-    One declaration of a project by its id, as a code search hit or a cited answer names it
-    (code://<id>): its language, kind, name, signature, doc and line. No row when the project as read
-    now no longer declares it, because the code moved since it was indexed.
+    One declaration of an indexed project by its key, as a code search hit or a cited answer names it
+    (code://<key>): its language, kind, name, signature, doc and line as the project reads now. No row
+    when the project no longer declares it: it was deleted or renamed since it was indexed.
   params:
     project: { type: string, description: "Project key." }
-    id: { type: string, description: "The declaration's id: a search hit's id, or a cited document's uri without code://." }
+    id: { type: string, description: "The declaration's key: a search hit's id, or a cited document's uri without code://." }
   cypher: |
-    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
-    WHERE d.id = $id
-    RETURN d.id AS id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS name,
+    MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
+    WITH ip, d ORDER BY d.fromLine, d.id
+    WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, '') AS owner, d.name AS name, collect(d) AS same
+    UNWIND range(0, size(same) - 1) AS i
+    WITH same[i] AS d, CASE WHEN project STARTS WITH 'https://' THEN substring(project, 8) ELSE project END + '!' + path + '#' + kind + ':'
+             + CASE WHEN owner = '' THEN name ELSE owner + '.' + name END + CASE WHEN i = 0 THEN '' ELSE '~' + toString(i + 1) END AS key
+    WITH d, key WHERE key = $id
+    RETURN key AS id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS name,
            d.name AS simpleName, d.owner AS owner, d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.toLine AS toLine, d.url AS url
 
 - name: IndexedProjects
   description: >-
     The projects kept searchable by meaning: each one's declarations are read by the code-declarations
-    documents source every 15 minutes, and only changed code is ingested again.
+    documents source every 15 minutes, and only declarations whose text changed are embedded again.
   cypher: |
     MATCH (ip:IndexedProject)
     RETURN ip.key AS project, ip.label AS label
