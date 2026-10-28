@@ -567,7 +567,7 @@
     return markdown(text).replace(CITE, function (m, list) {
       return citations(list).map(function (c) {
         var src = sources[c.n - 1], label = c.n + (c.lines ? ':' + c.lines : '');
-        return src ? '<a class="cite" href="' + declLink(src.id) + '" title="' + esc(src.title + (c.lines ? ', lines ' + c.lines : '')) + '">' + esc(label) + '</a>' : '<a class="cite off">' + esc(label) + '</a>';
+        return src ? '<a class="cite" href="' + declLink(src.id) + '" title="' + esc(src.title + (c.lines ? ', lines ' + c.lines : '')) + '">' + esc(label) + '</a>' : esc('[' + label + ']');
       }).join('');
     });
   }
