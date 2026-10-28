@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%237c9cff' stroke-width='2' stroke-linecap='round'%3E%3Crect x='3' y='3' width='6' height='5' rx='1'/%3E%3Crect x='15' y='3' width='6' height='5' rx='1'/%3E%3Crect x='9' y='16' width='6' height='5' rx='1'/%3E%3Cpath d='M6 8v3h12V8M12 11v5'/%3E%3C/g%3E%3C/svg%3E">
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"code-explorer","requires":{"lenses":[],"views":["ProjectLanguages","PartDependencies","MutualDependencies","PartContents","Hotspots","UnusedTypes","Impact","WhoUses","WhoCalls","WhereDefined","SearchCode","IndexedProjects","Declaration"],"realms":["realm-polyglot-code"],"namespaces":[]}}
+{"version":1,"name":"code-explorer","requires":{"lenses":[],"views":["ProjectLanguages","PartDependencies","MutualDependencies","PartContents","Hotspots","UnusedTypes","Impact","WhoUses","WhoCalls","WhereDefined","SearchCode","IndexedProjects","Declaration","IndexState","MatchDeclarations","AnswerFromCode"],"realms":["realm-polyglot-code"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d12;--surface:#121620;--surface2:#171c28;--border:#232a38;--text:#e6e9f0;--dim:#8a94a6;
@@ -126,12 +126,13 @@
   </section>
 
   <section id="pane-ask" hidden>
-    <p class="note">Ask about this project in words. The answer is written from its own declarations, found by meaning, and each citation is one of them: click it to see the declaration on the map.</p>
+    <p class="note">Ask about this project in words. The answer is written from its own code — the declarations whose names match your words, read live, and those closest in meaning from the code index — and each citation is one of them: click it to see the declaration on the map.</p>
+    <div id="askIndex" class="note"></div>
     <form class="bar" id="askForm">
       <input type="text" id="question" placeholder="How does a request reach the database? Where would I add rate limiting?" aria-label="Question">
       <button class="primary" type="submit">Ask</button>
     </form>
-    <div class="layout"><div id="answer"></div><aside class="panel side" id="evidence"><div class="note">The closest declarations by meaning appear here, the cited ones marked.</div></aside></div>
+    <div class="layout"><div id="answer"></div><aside class="panel side" id="evidence"><div class="note">The declarations found by name and by meaning appear here, the cited ones marked.</div></aside></div>
   </section>
 </div>
 <div id="embabel-badge">Built with <a href="https://worlds.embabel.com" target="_blank" rel="noopener">Embabel</a></div>
@@ -207,6 +208,7 @@
     if (m[2] === 'map') { loadMap().then(function () { if (arg) impact(arg); }); }
     if (m[2] === 'search') { loadIndexState(); if (arg) { $('query').value = arg; search(arg); } }
     if (m[2] === 'review') loadReview();
+    if (m[2] === 'ask') { indexState(project).then(function (st) { if (state.project === project) drawAskIndex(st); }).catch(function () { /* a hint only */ }); }
   }
   function showTab(tab) {
     state.tab = tab;
@@ -351,7 +353,8 @@
       state.indexed = mine;
       $('indexState').innerHTML = !mine
         ? 'This project is not yet searchable by meaning. <button id="makeSearchable">Make it searchable</button> <span class="note">Its types, functions and methods are kept as documents and re-read every 15 minutes; only changed code is embedded again.</span>'
-        : 'Searchable by meaning. A project added in the last 15 minutes may not answer yet: the code-declarations source reads it on its next run.';
+        : '';
+      if (mine) indexState(state.project).then(function (st) { $('indexState').textContent = describeIndex(st); }).catch(function () { /* a hint only */ });
     }).catch(function () { $('indexState').textContent = ''; });
   }
   function makeSearchable() {
@@ -447,80 +450,163 @@
     }).catch(fail);
   }
 
-  /* ---------- ask: an answer grounded in the project's declarations, each citation one of them ----------
-     SearchCode finds the closest declarations (the evidence); the appliance's document Q&A, narrowed to the
-     `code` tag, answers from the same index and returns its sources numbered as it cites them, each a
-     code://<declaration id>. If that answer cannot be had, the assistant is given the evidence numbered. */
-  function codePrefixes(project) {
-    return ['code://' + project.replace(/^https:\/\//, '') + '!'];
+  /* ── asking, shared with the Explorer: find the code three ways, then answer from it ──
+     IndexState says how much of the project the code index holds (N of M declarations). MatchDeclarations
+     reads every declaration live and matches the question's words against names, owners, paths and code
+     (SecurityConfiguration for "security configuration"), so it answers before anything is embedded.
+     SearchCode is the appliance's vector and keyword search over the indexed documents, fused. The two are
+     merged by declaration id (reciprocal rank), and the best go to AnswerFromCode, which hands the model
+     their code, callers and callees, numbered, and returns an explanation that cites them as [n]. */
+  var STOP = ('a an and any are as at be been by can could do does doing done for from get gets got had has have how i if in into is it its ' +
+    'me my of on or our should so such than that the their them then there these they this those through to used uses using was we were what ' +
+    'when where which who whom why will with would you your code project app application work works happen happens handled handle find show tell explain').split(' ');
+  function stem(w) {
+    var rules = [['ations', 4], ['ation', 4], ['ions', 4], ['ion', 4], ['ings', 4], ['ing', 4], ['ated', 4], ['ates', 4], ['ate', 5], ['ed', 4], ['es', 5], ['s', 4]];
+    for (var i = 0; i < rules.length; i++) {
+      var s = rules[i][0];
+      if (w.length - s.length >= rules[i][1] && w.slice(-s.length) === s && !(s === 's' && /ss$/.test(w))) return w.slice(0, -s.length);
+    }
+    return w;
   }
-  function inProject(uri) { return codePrefixes(state.project).some(function (p) { return String(uri || '').indexOf(p) === 0; }); }
+  /* The question's words, lower case and stemmed, a camelCase or snake_case name split into its words too. */
+  function askTerms(question) {
+    var out = [];
+    String(question).split(/[^A-Za-z0-9_]+/).forEach(function (tok) {
+      if (!tok) return;
+      var parts = tok.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').split(/[\s_]+/);
+      if (parts.length > 1 && tok.length > 3) out.push(tok.toLowerCase());
+      parts.forEach(function (p) { p = p.toLowerCase(); if (p.length > 1 && STOP.indexOf(p) < 0) out.push(stem(p)); });
+    });
+    return out.filter(function (t, i) { return out.indexOf(t) === i; }).slice(0, 8);
+  }
+  function nextIndexRun() {
+    var d = new Date(); d.setSeconds(0, 0); d.setMinutes(Math.floor(d.getMinutes() / 15) * 15 + 15);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  function indexState(project) {
+    embabel.cache.invalidate('view', 'IndexState', { project: project });
+    return view('IndexState', { project: project }).then(function (rows) { return rows[0] || { registered: false, declarations: 0, indexed: 0 }; });
+  }
+  /* What the index holds, in words: honest about a project not yet (or not wholly) searchable by meaning. */
+  function describeIndex(st) {
+    if (!st) return '';
+    var n = st.declarations || 0, held = Math.min(st.indexed || 0, n), next = nextIndexRun();
+    if (!st.registered) return 'Not indexed yet. Asking indexes it: the answer starts from names and code read live, and search by meaning joins once the code index has read it (it runs every 15 minutes; next at ' + next + ').';
+    if (!n) return 'Indexed, but no type, function or method was read from it: check the project key.';
+    if (!held) return 'None of its ' + n.toLocaleString() + ' declarations is searchable by meaning yet: the code index reads it on its next run (every 15 minutes; next at ' + next + '). Until then answers come from names and code read live.';
+    var last = st.lastIndexedAt ? ' Last indexed ' + new Date(st.lastIndexedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) + '.' : '';
+    if (held < n) return held.toLocaleString() + ' of ' + n.toLocaleString() + ' declarations searchable by meaning; the rest join on a coming run (next at ' + next + '). Names and code are read live either way.' + last;
+    return 'All ' + n.toLocaleString() + ' declarations searchable by meaning, and read live by name.' + last;
+  }
+  /* Asking needs the project to be an IndexedProject: the views read its declarations through it. */
+  function ensureIndexed(project, label) {
+    return indexState(project).then(function (st) {
+      if (st.registered) return st;
+      return fetch('/api/v1/tools/create_entry', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'IndexedProject', data: { key: project, label: label } }) })
+        .then(function (r) { if (!r.ok) throw new Error('The appliance would not record the project for asking (' + r.status + ').'); })
+        .then(function () { embabel.cache.invalidate('view', 'IndexedProjects', {}); return indexState(project); })
+        .then(function (s) { s.justRegistered = true; return s; });
+    });
+  }
+  /* Both finders at once, merged by id: reciprocal rank, so a declaration found by name AND by meaning rises. */
+  function findCode(project, question) {
+    var terms = askTerms(question).join(' ');
+    var byName = terms ? view('MatchDeclarations', { project: project, terms: terms }).catch(function () { return []; }) : Promise.resolve([]);
+    var byMeaning = view('SearchCode', { project: project, query: question }).catch(function () { return []; });
+    return Promise.all([byName, byMeaning]).then(function (lanes) {
+      var by = {}, order = [], tests = /\btests?\b|\bspec\b/i.test(question);
+      [['name', lanes[0]], ['meaning', lanes[1]]].forEach(function (lane) {
+        lane[1].forEach(function (r, i) {
+          if (!r.id) return;
+          var h = by[r.id];
+          if (!h) { h = by[r.id] = Object.assign({ lanes: [], fused: 0 }, r); order.push(h); }
+          h.lanes.push(lane[0]); h.fused += 1 / (8 + i);
+        });
+      });
+      order.forEach(function (h) { if (!tests && /test/i.test(h.file || '')) h.fused *= 0.4; });
+      order.sort(function (a, b) { return b.fused - a.fused; });
+      return { hits: order, terms: terms, byName: lanes[0].length, byMeaning: lanes[1].length };
+    });
+  }
+  var ANSWER_FROM = 8;
+  function answerFromCode(project, question, hits) {
+    var top = hits.slice(0, ANSWER_FROM);
+    return view('AnswerFromCode', { project: project, question: question, ids: top.map(function (h) { return h.id; }).join('|') }).then(function (rows) {
+      var answer = rows[0] && rows[0].answer;
+      if (!answer || /^UNAVAILABLE:/.test(answer)) throw new Error(answer || 'The model gave no answer.');
+      return { answer: answer, sources: top.map(function (h) { return { id: h.id, title: h.name + ' (' + h.language + ' ' + h.kind + ')', file: h.file, line: h.line }; }) };
+    });
+  }
+  /* [3], [1, 4] and [2:30-41]: each number one of the sources, a line range kept as the link's title. */
+  var CITE = /\[(\d+(?::\s*\d+(?:\s*[-–]\s*\d+)?)?(?:\s*[,;]\s*\d+(?::\s*\d+(?:\s*[-–]\s*\d+)?)?)*)\]/g;
+  function citations(list) {
+    return list.split(/[,;]/).map(function (x) { var m = x.trim().split(':'); return { n: Number(m[0]), lines: m[1] ? m[1].replace(/\s/g, '') : '' }; });
+  }
+  function citedNumbers(text) {
+    var nums = {};
+    String(text || '').replace(CITE, function (m, list) { citations(list).forEach(function (c) { nums[c.n] = true; }); return m; });
+    return nums;
+  }
+  function markdown(text) {
+    return esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/^#{1,4} (.*)$/gm, '<b>$1</b>').replace(/\n/g, '<br>');
+  }
+
+  /* ---------- ask: the Explorer's face on it ----------
+     The answer, each [n] a link to its declaration on the map; beside it every declaration found, by name
+     and by meaning, the cited ones marked. */
   function declLink(id) { return '#/p/' + encodeURIComponent(state.project) + '/decl/' + encodeURIComponent(id); }
   function renderAnswer(text, sources) {
-    var html = esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
-    return html.replace(/\[(\d+(?:\s*[,;]\s*\d+)*)\]/g, function (m, list) {
-      return list.split(/[,;]/).map(function (x) {
-        var n = Number(x.trim()), src = sources[n - 1];
-        return src ? '<a class="cite" href="' + declLink(src.id) + '" title="' + esc(src.title) + '">' + n + '</a>' : '<a class="cite off">' + n + '</a>';
+    return markdown(text).replace(CITE, function (m, list) {
+      return citations(list).map(function (c) {
+        var src = sources[c.n - 1], label = c.n + (c.lines ? ':' + c.lines : '');
+        return src ? '<a class="cite" href="' + declLink(src.id) + '" title="' + esc(src.title + (c.lines ? ', lines ' + c.lines : '')) + '">' + esc(label) + '</a>' : '<a class="cite off">' + esc(label) + '</a>';
       }).join('');
     });
   }
-  /* The numbers an answer actually cites: a source it read but never cited is evidence, not a citation. */
-  function citedNumbers(text) {
-    var nums = {};
-    String(text || '').replace(/\[(\d+(?:\s*[,;]\s*\d+)*)\]/g, function (m, list) { list.split(/[,;]/).forEach(function (x) { nums[Number(x.trim())] = true; }); return m; });
-    return nums;
-  }
-  function drawEvidence(rows, sources, answer) {
+  function drawEvidence(found, sources, answer) {
     var nums = citedNumbers(answer), cited = {}; sources.forEach(function (s, i) { if (nums[i + 1]) cited[s.id] = i + 1; });
-    $('evidence').innerHTML = '<h3 style="margin-top:0">Closest declarations by meaning</h3>' + (rows.length ? rows.map(function (r) {
-      var n = cited[r.id];
-      return '<div class="hit' + (n ? ' cited' : '') + '">' + (n ? '<b style="color:var(--accent2)">[' + n + ']</b> ' : '') + lang(r.language) +
-        ' <a class="name mono" href="' + declLink(r.id) + '">' + esc(r.name) + '</a> <span class="note">' + esc(r.kind) + ' · ' + Number(r.score || 0).toFixed(2) + '</span><div>' + where(r) + '</div></div>';
-    }).join('') : '<div class="empty">Nothing in this project’s index is close to that.</div>');
+    var rows = found.hits;
+    $('evidence').innerHTML = '<h3 style="margin-top:0">Found by name and by meaning</h3>' + (rows.length
+      ? '<div class="note">' + found.byName + ' by name (live) · ' + found.byMeaning + ' by meaning (index) · the first ' + Math.min(ANSWER_FROM, rows.length) + ' read for the answer</div>' +
+        rows.slice(0, 25).map(function (r, i) {
+          var n = cited[r.id];
+          return '<div class="hit' + (n ? ' cited' : '') + '">' + (n ? '<b style="color:var(--accent2)">[' + n + ']</b> ' : '') + lang(r.language) +
+            ' <a class="name mono" href="' + declLink(r.id) + '">' + esc(r.name) + '</a> <span class="note">' + esc(r.kind) + ' · ' +
+            r.lanes.map(function (l) { return l === 'name' ? 'by name' : 'by meaning'; }).join(' + ') + (i < ANSWER_FROM ? '' : ' · not read') + '</span><div>' + where(r) + '</div></div>';
+        }).join('')
+      : '<div class="empty">' + esc(found.empty || 'Nothing found.') + '</div>');
   }
-  function documentAnswer(question) {
-    return fetch('/api/v1/documents/ask', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: 'About the code of ' + state.project.replace(/^https:\/\/github\.com\//, '') + ': ' + question, tag: 'code', topK: 8 }) })
-      .then(function (r) { if (!r.ok) throw new Error('documents/ask ' + r.status); return r.json(); })
-      .then(function (body) {
-        var sources = (body.sources || []).filter(function (s) { return /^code:\/\//.test(s.uri || ''); });
-        if (!body.answer || !sources.length) throw new Error(body.note || 'no grounded answer');
-        return { answer: body.answer, via: 'Answered by the appliance’s document Q&A' + (body.model ? ' (' + body.model + ')' : '') + ' over this project’s code index.',
-                 sources: sources.map(function (s) { return { id: String(s.uri).replace(/^code:\/\//, ''), title: s.title || s.uri, inProject: inProject(s.uri) }; }) };
-      });
-  }
-  var chat = null;
-  function chatAnswer(question, rows) {
-    if (!rows.length) throw new Error('Nothing in this project’s code index is close to that question, so there is nothing to answer from.');
-    var top = rows.slice(0, 10);
-    var context = top.map(function (r, i) {
-      return '[' + (i + 1) + '] ' + r.language + ' ' + r.kind + ' ' + r.name + ' — ' + r.file + ':' + r.line + '\n' + (r.signature || '') + (r.doc ? '\n' + String(r.doc).slice(0, 300) : '');
-    }).join('\n\n');
-    chat = chat || embabel.chat.session({});
-    return chat.ask('Answer a question about the code project ' + state.project + ' from these declarations, which a search of its code by meaning returned. ' +
-      'Cite each declaration you rely on by its number in square brackets, like [2]. If they do not answer the question, say so.\n\n' + context + '\n\nQuestion: ' + question)
-      .then(function (m) {
-        return { answer: m && m.content || '', via: 'Answered by the assistant from the ' + top.length + ' closest declarations.',
-                 sources: top.map(function (r) { return { id: r.id, title: r.name + ' (' + r.language + ' ' + r.kind + ')', inProject: true }; }) };
-      });
-  }
+  function drawAskIndex(st) { $('askIndex').textContent = describeIndex(st); }
   var asking = 0;
   function ask(question) {
     if (!question || !state.project) return;
-    var mine = ++asking;
-    $('answer').innerHTML = '<div class="answer note">Searching the code by meaning, then writing the answer from what it finds…</div>';
+    var mine = ++asking, project = state.project;
+    $('answer').innerHTML = '<div class="answer note">Finding the code by name and by meaning…</div>';
     $('evidence').innerHTML = '<div class="empty">Searching…</div>';
-    var hits = view('SearchCode', { project: state.project, query: question }).catch(function () { return []; });
-    hits.then(function (rows) { if (mine === asking) drawEvidence(rows, []); });
-    documentAnswer(question).catch(function () { return hits.then(function (rows) { return chatAnswer(question, rows); }); })
-      .then(function (r) {
+    ensureIndexed(project, project.replace(/^https:\/\/github\.com\//, '')).then(function (st) {
+      if (mine === asking) drawAskIndex(st);
+      return findCode(project, question).then(function (found) { found.indexed = st.indexed; return found; });
+    }).then(function (found) {
+      if (mine !== asking) return;
+      if (!found.hits.length) {
+        found.empty = 'Nothing in this project has those words in its names or code' + (found.indexed ? ', and nothing in its index is close in meaning.' : ', and its code index has not run yet, so nothing can be found by meaning. Try the names you expect, or ask again after the next run.');
+        drawEvidence(found, [], '');
+        $('answer').innerHTML = '<div class="answer">' + esc(found.empty) + '</div>';
+        return;
+      }
+      drawEvidence(found, [], '');
+      $('answer').innerHTML = '<div class="answer note">Reading the code of the ' + Math.min(ANSWER_FROM, found.hits.length) + ' best declarations, with their callers and callees, and writing the answer…</div>';
+      return answerFromCode(project, question, found.hits).then(function (r) {
         if (mine !== asking) return;
+        var nums = citedNumbers(r.answer);
         $('answer').innerHTML = '<div class="answer">' + renderAnswer(r.answer, r.sources) + '</div><h3>Cited declarations</h3>' +
-          r.sources.map(function (s, i) { if (!citedNumbers(r.answer)[i + 1]) return ''; return '<div class="note"><a class="cite" href="' + declLink(s.id) + '">' + (i + 1) + '</a> <a class="mono" href="' + declLink(s.id) + '">' + esc(s.title) + '</a>' + (s.inProject ? '' : ' (another indexed project)') + '</div>'; }).join('') +
-          '<div class="note">' + esc(r.via) + '</div>';
-        hits.then(function (rows) { if (mine === asking) drawEvidence(rows, r.sources, r.answer); });
-      }).catch(function (e) { if (mine === asking) $('answer').innerHTML = '<div class="answer">' + esc((e && e.message) || String(e)) + '</div>'; });
+          r.sources.map(function (s, i) { if (!nums[i + 1]) return ''; return '<div class="note"><a class="cite" href="' + declLink(s.id) + '">' + (i + 1) + '</a> <a class="mono" href="' + declLink(s.id) + '">' + esc(s.title) + '</a> <span class="mono">' + esc(s.file) + ':' + esc(s.line) + '</span></div>'; }).join('') +
+          '<div class="note">Written by the appliance’s model from the code of the ' + r.sources.length + ' declarations read (AnswerFromCode): ' + found.byName + ' found by name, read live; ' +
+          found.byMeaning + ' by meaning from the code index. Calls are matched by name. Each [n] opens its declaration on the map.</div>';
+        drawEvidence(found, r.sources, r.answer);
+      });
+    }).catch(function (e) { if (mine === asking) $('answer').innerHTML = '<div class="answer">' + esc((e && e.message) || String(e)) + '</div>'; });
   }
 
   /* ---------- wiring ---------- */

@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%237c9cff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M8 6 2 12l6 6M16 6l6 6-6 6M14 4l-4 16'/%3E%3C/svg%3E">
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"code-atlas","requires":{"lenses":[],"views":["ProjectLanguages","Routes","SharedNames","ExternalDependencies","DocCoverage","LargestFunctions","WhereDefined","WhoCalls","SearchCode","Declaration","IndexedProjects"],"realms":["realm-polyglot-code"],"namespaces":[]}}
+{"version":1,"name":"code-atlas","requires":{"lenses":[],"views":["ProjectLanguages","Routes","SharedNames","ExternalDependencies","DocCoverage","LargestFunctions","WhereDefined","WhoCalls","SearchCode","IndexState","MatchDeclarations","AskContext","AnswerFromCode"],"realms":["realm-polyglot-code"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d12;--surface:#121620;--surface2:#171c28;--border:#232a38;--text:#e6e9f0;--dim:#8a94a6;
@@ -197,18 +197,116 @@ WITH h, d, key WHERE h.key = key
 RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name,
        d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url, h.score AS score, key AS id
 ORDER BY score DESC</pre></details>
-  <details><summary><b>Declaration</b> — One declaration of an indexed project by its key, as a code search hit or a cited answer names it (code://&lt;key&gt;): its language, kind, name, signature, doc and line as the project reads now. No row when the project no longer declares it: it was deleted or renamed since it was indexed.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+  <details><summary><b>IndexState</b> — How much of a project the code index holds: whether it is an IndexedProject, how many of its types, functions, methods and constructors it declares now, how many are held as searchable documents, and when the last was indexed (epoch ms). `indexed` below `declarations` means the index has not yet run for it, or is part way; search by meaning sees only what is indexed, while MatchDeclarations reads every declaration live.</summary><pre class="mono">OPTIONAL MATCH (ip:IndexedProject {key: $project})
+WITH ip
+OPTIONAL MATCH (ip)-[:DECLARES]-&gt;(d:CodeDeclaration)
+WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;, &#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;]
+WITH ip IS NOT NULL AS registered, count(d) AS declarations
+OPTIONAL MATCH (doc:Document)
+WHERE doc.uri STARTS WITH &#x27;code://&#x27; + CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27;
+RETURN registered, declarations, count(doc) AS indexed, max(doc.ingestionEpochMs) AS lastIndexedAt</pre></details>
+  <details><summary><b>MatchDeclarations</b> — The declarations of an indexed project whose words match a question&#x27;s, read live from the source tree — no embeddings, so it answers the moment a project is indexed, before any document exists. `terms` is the question&#x27;s words, lower case, space separated, already stemmed (&#x27;security configuration&#x27;, &#x27;jwt validat&#x27;): a term counts where the declaration&#x27;s name holds it (most), its owner or its path, or its code (least). SecurityConfiguration matches &#x27;security configuration&#x27;; test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;, &#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;]
+WITH ip, d ORDER BY d.fromLine, d.id
+WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
+UNWIND range(0, size(same) - 1) AS i
+WITH same[i] AS d, CASE WHEN project STARTS WITH &#x27;https://&#x27; THEN substring(project, 8) ELSE project END + &#x27;!&#x27; + path + &#x27;#&#x27; + kind + &#x27;:&#x27;
+         + CASE WHEN owner = &#x27;&#x27; THEN name ELSE owner + &#x27;.&#x27; + name END + CASE WHEN i = 0 THEN &#x27;&#x27; ELSE &#x27;~&#x27; + toString(i + 1) END AS key,
+     [t IN split(toLower($terms), &#x27; &#x27;) WHERE size(t) &gt; 1] AS ts
+WITH d, key, ts, size([t IN ts WHERE toLower(d.name) CONTAINS t]) AS inName,
+     size([t IN ts WHERE toLower(coalesce(d.owner, &#x27;&#x27;)) CONTAINS t]) AS inOwner,
+     size([t IN ts WHERE toLower(d.path) CONTAINS t]) AS inPath,
+     size([t IN ts WHERE toLower(coalesce(d.text, &#x27;&#x27;)) CONTAINS t]) AS inText
+WHERE size(ts) &gt; 0 AND inName + inOwner + inText &gt; 0
+WITH d, key, inName, inOwner, inPath, inText,
+     (3.0 * inName + 1.0 * inOwner + 0.5 * inPath + 0.75 * inText) / size(ts)
+     + CASE WHEN inName = size(ts) THEN 1.0 ELSE 0.0 END
+     + CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;] THEN 0.5
+            WHEN d.kind = &#x27;constructor&#x27; THEN -0.5 ELSE 0.0 END
+     - CASE WHEN toLower(d.path) CONTAINS &#x27;test&#x27; THEN 1.5 ELSE 0.0 END AS score
+RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name,
+       d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url, score,
+       inName AS termsInName, inText AS termsInCode, key AS id
+ORDER BY score DESC, line LIMIT 25</pre></details>
+  <details><summary><b>AskContext</b> — Declarations of an indexed project by id (&#x27;|&#x27; between ids), each with what an explanation needs: its signature, annotations and doc; its code (a function&#x27;s lines, numbered; a type&#x27;s members, up to about 4,000 characters); the functions and methods elsewhere that call it or use the type (`callers`, at most 8 listed of `callerCount`), and the declarations of the same language its code calls or uses (`callees`). Calls are matched by NAME in the code&#x27;s text, so a common name is over-counted. Test code is left out of callers and callees unless the declaration is itself a test.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
 WITH ip, d ORDER BY d.fromLine, d.id
 WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
 UNWIND range(0, size(same) - 1) AS i
 WITH same[i] AS d, CASE WHEN project STARTS WITH &#x27;https://&#x27; THEN substring(project, 8) ELSE project END + &#x27;!&#x27; + path + &#x27;#&#x27; + kind + &#x27;:&#x27;
          + CASE WHEN owner = &#x27;&#x27; THEN name ELSE owner + &#x27;.&#x27; + name END + CASE WHEN i = 0 THEN &#x27;&#x27; ELSE &#x27;~&#x27; + toString(i + 1) END AS key
-WITH d, key WHERE key = $id
-RETURN key AS id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name,
-       d.name AS simpleName, d.owner AS owner, d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.toLine AS toLine, d.url AS url</pre></details>
-  <details><summary><b>IndexedProjects</b> — The projects kept searchable by meaning: each one&#x27;s declarations are read by the code-declarations documents source every 15 minutes, and only declarations whose text changed are embedded again.</summary><pre class="mono">MATCH (ip:IndexedProject)
-RETURN ip.key AS project, ip.label AS label
-ORDER BY project</pre></details>
+WITH collect({d: d, key: key, code: d.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;], test: toLower(d.path) CONTAINS &#x27;test&#x27;,
+              type: d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;]}) AS all
+UNWIND [x IN all WHERE x.key IN split($ids, &#x27;|&#x27;)] AS picked
+WITH all, picked.d AS d, picked.key AS id, picked.type AS isType, picked.test AS isTest
+WITH all, d, id, isType, isTest,
+     CASE WHEN isType
+          THEN [&#x27; &#x27; + d.name + &#x27; &#x27;, &#x27; &#x27; + d.name + &#x27;(&#x27;, &#x27; &#x27; + d.name + &#x27;&lt;&#x27;, &#x27; &#x27; + d.name + &#x27;.&#x27;, &#x27; &#x27; + d.name + &#x27;)&#x27;, &#x27;(&#x27; + d.name + &#x27; &#x27;, &#x27;(&#x27; + d.name + &#x27;.&#x27;, &#x27;&lt;&#x27; + d.name + &#x27;&gt;&#x27;, &#x27;&lt;&#x27; + d.name + &#x27;,&#x27;, &#x27; &#x27; + d.name + &#x27;::&#x27;, &#x27;: &#x27; + d.name + &#x27;,&#x27;, &#x27; &#x27; + d.name + &#x27;\n&#x27;]
+          ELSE [&#x27;.&#x27; + d.name + &#x27;(&#x27;, &#x27; &#x27; + d.name + &#x27;(&#x27;, &#x27;(&#x27; + d.name + &#x27;(&#x27;, &#x27;!&#x27; + d.name + &#x27;(&#x27;, &#x27;\t&#x27; + d.name + &#x27;(&#x27;, &#x27;::&#x27; + d.name, &#x27;.&#x27; + d.name + &#x27; {&#x27;, &#x27;.&#x27; + d.name + &#x27;{&#x27;] END AS uses
+WITH all, d, id, isType, isTest,
+     [x IN all WHERE x.code AND x.key &lt;&gt; id AND (isTest OR NOT x.test)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &lt;= d.fromLine AND x.d.toLine &gt;= d.toLine)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &gt;= d.fromLine AND x.d.toLine &lt;= d.toLine)
+        AND any(u IN uses WHERE x.d.text CONTAINS u)] AS callers,
+     [x IN all WHERE isType AND x.d.owner = d.name AND x.d.path = d.path] AS members
+WITH all, d, id, isType, isTest, callers, members,
+     CASE WHEN isType THEN reduce(acc = &#x27;&#x27;, m IN members | CASE WHEN size(acc) &gt; 4000 THEN acc ELSE acc + coalesce(m.d.text, toString(m.d.fromLine) + &#x27;: &#x27; + coalesce(m.d.signature, m.d.name)) + &#x27;\n&#x27; END)
+          ELSE coalesce(d.text, &#x27;&#x27;) END AS body
+WITH d, id, callers, members, body,
+     [x IN all WHERE x.key &lt;&gt; id AND size(x.d.name) &gt; 3 AND x.d.language = d.language AND (x.code OR x.type) AND (isTest OR NOT x.test)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &gt;= d.fromLine AND x.d.toLine &lt;= d.toLine)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &lt;= d.fromLine AND x.d.toLine &gt;= d.toLine)
+        AND any(u IN CASE WHEN x.code THEN [&#x27;.&#x27; + x.d.name + &#x27;(&#x27;, &#x27; &#x27; + x.d.name + &#x27;(&#x27;, &#x27;(&#x27; + x.d.name + &#x27;(&#x27;, &#x27;!&#x27; + x.d.name + &#x27;(&#x27;, &#x27;::&#x27; + x.d.name]
+                          ELSE [&#x27; &#x27; + x.d.name + &#x27; &#x27;, &#x27; &#x27; + x.d.name + &#x27;(&#x27;, &#x27; &#x27; + x.d.name + &#x27;&lt;&#x27;, &#x27; &#x27; + x.d.name + &#x27;.&#x27;, &#x27;(&#x27; + x.d.name + &#x27; &#x27;, &#x27;(&#x27; + x.d.name + &#x27;.&#x27;, &#x27;&lt;&#x27; + x.d.name + &#x27;&gt;&#x27;, &#x27; &#x27; + x.d.name + &#x27;::&#x27;, &#x27;: &#x27; + x.d.name] END
+               WHERE body CONTAINS u)] AS callees
+RETURN id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name, d.name AS simpleName,
+       d.signature AS signature, d.javadoc AS doc, d.annotationText AS annotations, d.path AS file, d.fromLine AS line, d.toLine AS toLine, d.url AS url,
+       CASE WHEN size(body) &gt; 4000 THEN substring(body, 0, 4000) + &#x27;\n…&#x27; ELSE body END AS code, size(members) AS memberCount,
+       size(callers) AS callerCount,
+       [c IN callers[0..8] | {id: c.key, name: CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END, kind: c.d.kind, file: c.d.path, line: c.d.fromLine, url: c.d.url}] AS callers,
+       size(callees) AS calleeCount,
+       [c IN callees[0..12] | {id: c.key, name: CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END, kind: c.d.kind, file: c.d.path, line: c.d.fromLine, url: c.d.url}] AS callees,
+       &#x27;name&#x27; AS resolution</pre></details>
+  <details><summary><b>AnswerFromCode</b> — An answer to a question about an indexed project, written from its code: the declarations given (ids, &#x27;|&#x27; between them, best first) are numbered [1], [2], … in that order, each handed to the model with its signature, annotations, doc, code (more for the first three) and the names of what calls it and what it calls (matched by name), and `synthesize` traces through them to explain how the code does what is asked, citing each declaration it relies on by its number ([2], or [2:30-41] for lines). One model call. It answers only from the code given: what the declarations do not show, it says is not shown. Find the ids with MatchDeclarations and SearchCode.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+WITH ip, d ORDER BY d.fromLine, d.id
+WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
+UNWIND range(0, size(same) - 1) AS i
+WITH same[i] AS d, CASE WHEN project STARTS WITH &#x27;https://&#x27; THEN substring(project, 8) ELSE project END + &#x27;!&#x27; + path + &#x27;#&#x27; + kind + &#x27;:&#x27;
+         + CASE WHEN owner = &#x27;&#x27; THEN name ELSE owner + &#x27;.&#x27; + name END + CASE WHEN i = 0 THEN &#x27;&#x27; ELSE &#x27;~&#x27; + toString(i + 1) END AS key
+WITH collect({d: d, key: key, code: d.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;], test: toLower(d.path) CONTAINS &#x27;test&#x27;,
+              type: d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;]}) AS all, split($ids, &#x27;|&#x27;) AS wanted
+UNWIND [x IN all WHERE x.key IN wanted] AS picked
+WITH all, wanted, picked.d AS d, picked.key AS id, picked.type AS isType, picked.test AS isTest
+WITH all, d, id, isType, isTest, [k IN range(0, size(wanted) - 1) WHERE wanted[k] = id][0] + 1 AS num,
+     CASE WHEN isType
+          THEN [&#x27; &#x27; + d.name + &#x27; &#x27;, &#x27; &#x27; + d.name + &#x27;(&#x27;, &#x27; &#x27; + d.name + &#x27;&lt;&#x27;, &#x27; &#x27; + d.name + &#x27;.&#x27;, &#x27; &#x27; + d.name + &#x27;)&#x27;, &#x27;(&#x27; + d.name + &#x27; &#x27;, &#x27;(&#x27; + d.name + &#x27;.&#x27;, &#x27;&lt;&#x27; + d.name + &#x27;&gt;&#x27;, &#x27;&lt;&#x27; + d.name + &#x27;,&#x27;, &#x27; &#x27; + d.name + &#x27;::&#x27;, &#x27;: &#x27; + d.name + &#x27;,&#x27;, &#x27; &#x27; + d.name + &#x27;\n&#x27;]
+          ELSE [&#x27;.&#x27; + d.name + &#x27;(&#x27;, &#x27; &#x27; + d.name + &#x27;(&#x27;, &#x27;(&#x27; + d.name + &#x27;(&#x27;, &#x27;!&#x27; + d.name + &#x27;(&#x27;, &#x27;\t&#x27; + d.name + &#x27;(&#x27;, &#x27;::&#x27; + d.name, &#x27;.&#x27; + d.name + &#x27; {&#x27;, &#x27;.&#x27; + d.name + &#x27;{&#x27;] END AS uses
+WITH all, d, id, isType, isTest, num,
+     [x IN all WHERE x.code AND x.key &lt;&gt; id AND (isTest OR NOT x.test)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &lt;= d.fromLine AND x.d.toLine &gt;= d.toLine)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &gt;= d.fromLine AND x.d.toLine &lt;= d.toLine)
+        AND any(u IN uses WHERE x.d.text CONTAINS u)] AS callers,
+     CASE WHEN num &lt;= 3 THEN 6000 ELSE 2500 END AS budget
+WITH all, d, id, isType, isTest, num, callers, budget,
+     CASE WHEN isType THEN reduce(acc = &#x27;&#x27;, m IN [x IN all WHERE x.d.owner = d.name AND x.d.path = d.path] | CASE WHEN size(acc) &gt; budget THEN acc ELSE acc + coalesce(m.d.text, toString(m.d.fromLine) + &#x27;: &#x27; + coalesce(m.d.signature, m.d.name)) + &#x27;\n&#x27; END)
+          ELSE coalesce(d.text, &#x27;&#x27;) END AS body
+WITH d, num, callers, budget, body,
+     [x IN all WHERE x.key &lt;&gt; id AND size(x.d.name) &gt; 3 AND x.d.language = d.language AND (x.code OR x.type) AND (isTest OR NOT x.test)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &gt;= d.fromLine AND x.d.toLine &lt;= d.toLine)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &lt;= d.fromLine AND x.d.toLine &gt;= d.toLine)
+        AND any(u IN CASE WHEN x.code THEN [&#x27;.&#x27; + x.d.name + &#x27;(&#x27;, &#x27; &#x27; + x.d.name + &#x27;(&#x27;, &#x27;(&#x27; + x.d.name + &#x27;(&#x27;, &#x27;!&#x27; + x.d.name + &#x27;(&#x27;, &#x27;::&#x27; + x.d.name]
+                          ELSE [&#x27; &#x27; + x.d.name + &#x27; &#x27;, &#x27; &#x27; + x.d.name + &#x27;(&#x27;, &#x27; &#x27; + x.d.name + &#x27;&lt;&#x27;, &#x27; &#x27; + x.d.name + &#x27;.&#x27;, &#x27;(&#x27; + x.d.name + &#x27; &#x27;, &#x27;(&#x27; + x.d.name + &#x27;.&#x27;, &#x27;&lt;&#x27; + x.d.name + &#x27;&gt;&#x27;, &#x27; &#x27; + x.d.name + &#x27;::&#x27;, &#x27;: &#x27; + x.d.name] END
+               WHERE body CONTAINS u)] AS callees
+WITH num, &#x27;[&#x27; + toString(num) + &#x27;] &#x27; + d.language + &#x27; &#x27; + d.kind + &#x27; &#x27; + CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END
+       + &#x27;, in &#x27; + d.path + &#x27; lines &#x27; + toString(d.fromLine) + &#x27;-&#x27; + toString(d.toLine) + &#x27;\n&#x27;
+       + reduce(a = &#x27;&#x27;, t IN coalesce(d.annotationText, []) | a + t + &#x27;\n&#x27;) + coalesce(d.signature, &#x27;&#x27;) + &#x27;\n&#x27;
+       + CASE WHEN coalesce(d.javadoc, &#x27;&#x27;) = &#x27;&#x27; THEN &#x27;&#x27; ELSE d.javadoc + &#x27;\n&#x27; END
+       + CASE WHEN size(body) &gt; budget THEN substring(body, 0, budget) + &#x27;\n…&#x27; ELSE body END
+       + &#x27;\nCalled or used by (matched by name): &#x27; + CASE WHEN size(callers) = 0 THEN &#x27;nothing in this project&#x27; ELSE reduce(a = &#x27;&#x27;, c IN callers[0..6] | a + CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END + &#x27;; &#x27;) + CASE WHEN size(callers) &gt; 6 THEN &#x27;and &#x27; + toString(size(callers) - 6) + &#x27; more&#x27; ELSE &#x27;&#x27; END END
+       + &#x27;\nCalls or uses (matched by name): &#x27; + CASE WHEN size(callees) = 0 THEN &#x27;nothing declared in this project&#x27; ELSE reduce(a = &#x27;&#x27;, c IN callees[0..10] | a + CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END + &#x27;; &#x27;) END AS item
+ORDER BY num
+RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $project + &#x27;: &#x27; + $question
+       + &#x27; Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its number in square brackets, like [2], or with lines, like [2:30-41]. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess.&#x27;) AS answer,
+       count(item) AS declarations</pre></details>
   <h3>What an empty panel means</h3>
   <p>The views read every file of the languages they cover, so an empty answer means none matched — no endpoint in a framework the route
   styles know, no name shared across languages. A repository that could not be read says so instead.</p>
@@ -333,7 +431,7 @@ ORDER BY project</pre></details>
   /* ── one project ── */
   function analyze(key) {
     key = (key || '').trim(); if (!key) return;
-    state.project = key; state.data = {}; state.tab = 'routes'; state.ask = null;
+    state.project = key; state.data = {}; state.tab = 'routes'; state.ask = null; state.index = null;
     $('project').value = key; location.hash = 'project=' + encodeURIComponent(key);
     steps(STEPS); render();
     var p = { project: key };
@@ -424,52 +522,136 @@ ORDER BY project</pre></details>
   }
 
 
-  /* ── ask: an answer grounded in the project's declarations, each citation one of them ──
-     Two reads at once. SearchCode finds the declarations closest to the question in this project's code
-     (the evidence column). The appliance's document Q&A (/api/v1/documents/ask, narrowed to the `code` tag)
-     answers from the same index and returns the sources it read, numbered as the answer cites them; each
-     source's uri is code://<declaration id>, so a citation IS a declaration. If that answer cannot be had,
-     the assistant is asked instead, given the evidence numbered, and its [n] are matched to it. */
-  /* Beside this app, wherever the realm's apps are served. */
-  var EXPLORER = 'explorer.html';
-  function codePrefixes(project) {
-    return ['code://' + project.replace(/^https:\/\//, '') + '!'];
+  /* ── asking, shared with the Explorer: find the code three ways, then answer from it ──
+     IndexState says how much of the project the code index holds (N of M declarations). MatchDeclarations
+     reads every declaration live and matches the question's words against names, owners, paths and code
+     (SecurityConfiguration for "security configuration"), so it answers before anything is embedded.
+     SearchCode is the appliance's vector and keyword search over the indexed documents, fused. The two are
+     merged by declaration id (reciprocal rank), and the best go to AnswerFromCode, which hands the model
+     their code, callers and callees, numbered, and returns an explanation that cites them as [n]. */
+  var STOP = ('a an and any are as at be been by can could do does doing done for from get gets got had has have how i if in into is it its ' +
+    'me my of on or our should so such than that the their them then there these they this those through to used uses using was we were what ' +
+    'when where which who whom why will with would you your code project app application work works happen happens handled handle find show tell explain').split(' ');
+  function stem(w) {
+    var rules = [['ations', 4], ['ation', 4], ['ions', 4], ['ion', 4], ['ings', 4], ['ing', 4], ['ated', 4], ['ates', 4], ['ate', 5], ['ed', 4], ['es', 5], ['s', 4]];
+    for (var i = 0; i < rules.length; i++) {
+      var s = rules[i][0];
+      if (w.length - s.length >= rules[i][1] && w.slice(-s.length) === s && !(s === 's' && /ss$/.test(w))) return w.slice(0, -s.length);
+    }
+    return w;
   }
-  function inProject(uri) { return codePrefixes(state.project).some(function (p) { return String(uri || '').indexOf(p) === 0; }); }
-  function declId(uri) { return String(uri || '').replace(/^code:\/\//, ''); }
+  /* The question's words, lower case and stemmed, a camelCase or snake_case name split into its words too. */
+  function askTerms(question) {
+    var out = [];
+    String(question).split(/[^A-Za-z0-9_]+/).forEach(function (tok) {
+      if (!tok) return;
+      var parts = tok.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').split(/[\s_]+/);
+      if (parts.length > 1 && tok.length > 3) out.push(tok.toLowerCase());
+      parts.forEach(function (p) { p = p.toLowerCase(); if (p.length > 1 && STOP.indexOf(p) < 0) out.push(stem(p)); });
+    });
+    return out.filter(function (t, i) { return out.indexOf(t) === i; }).slice(0, 8);
+  }
+  function nextIndexRun() {
+    var d = new Date(); d.setSeconds(0, 0); d.setMinutes(Math.floor(d.getMinutes() / 15) * 15 + 15);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  function indexState(project) {
+    embabel.cache.invalidate('view', 'IndexState', { project: project });
+    return view('IndexState', { project: project }).then(function (rows) { return rows[0] || { registered: false, declarations: 0, indexed: 0 }; });
+  }
+  /* What the index holds, in words: honest about a project not yet (or not wholly) searchable by meaning. */
+  function describeIndex(st) {
+    if (!st) return '';
+    var n = st.declarations || 0, held = Math.min(st.indexed || 0, n), next = nextIndexRun();
+    if (!st.registered) return 'Not indexed yet. Asking indexes it: the answer starts from names and code read live, and search by meaning joins once the code index has read it (it runs every 15 minutes; next at ' + next + ').';
+    if (!n) return 'Indexed, but no type, function or method was read from it: check the project key.';
+    if (!held) return 'None of its ' + n.toLocaleString() + ' declarations is searchable by meaning yet: the code index reads it on its next run (every 15 minutes; next at ' + next + '). Until then answers come from names and code read live.';
+    var last = st.lastIndexedAt ? ' Last indexed ' + new Date(st.lastIndexedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) + '.' : '';
+    if (held < n) return held.toLocaleString() + ' of ' + n.toLocaleString() + ' declarations searchable by meaning; the rest join on a coming run (next at ' + next + '). Names and code are read live either way.' + last;
+    return 'All ' + n.toLocaleString() + ' declarations searchable by meaning, and read live by name.' + last;
+  }
+  /* Asking needs the project to be an IndexedProject: the views read its declarations through it. */
+  function ensureIndexed(project, label) {
+    return indexState(project).then(function (st) {
+      if (st.registered) return st;
+      return fetch('/api/v1/tools/create_entry', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'IndexedProject', data: { key: project, label: label } }) })
+        .then(function (r) { if (!r.ok) throw new Error('The appliance would not record the project for asking (' + r.status + ').'); })
+        .then(function () { embabel.cache.invalidate('view', 'IndexedProjects', {}); return indexState(project); })
+        .then(function (s) { s.justRegistered = true; return s; });
+    });
+  }
+  /* Both finders at once, merged by id: reciprocal rank, so a declaration found by name AND by meaning rises. */
+  function findCode(project, question) {
+    var terms = askTerms(question).join(' ');
+    var byName = terms ? view('MatchDeclarations', { project: project, terms: terms }).catch(function () { return []; }) : Promise.resolve([]);
+    var byMeaning = view('SearchCode', { project: project, query: question }).catch(function () { return []; });
+    return Promise.all([byName, byMeaning]).then(function (lanes) {
+      var by = {}, order = [], tests = /\btests?\b|\bspec\b/i.test(question);
+      [['name', lanes[0]], ['meaning', lanes[1]]].forEach(function (lane) {
+        lane[1].forEach(function (r, i) {
+          if (!r.id) return;
+          var h = by[r.id];
+          if (!h) { h = by[r.id] = Object.assign({ lanes: [], fused: 0 }, r); order.push(h); }
+          h.lanes.push(lane[0]); h.fused += 1 / (8 + i);
+        });
+      });
+      order.forEach(function (h) { if (!tests && /test/i.test(h.file || '')) h.fused *= 0.4; });
+      order.sort(function (a, b) { return b.fused - a.fused; });
+      return { hits: order, terms: terms, byName: lanes[0].length, byMeaning: lanes[1].length };
+    });
+  }
+  var ANSWER_FROM = 8;
+  function answerFromCode(project, question, hits) {
+    var top = hits.slice(0, ANSWER_FROM);
+    return view('AnswerFromCode', { project: project, question: question, ids: top.map(function (h) { return h.id; }).join('|') }).then(function (rows) {
+      var answer = rows[0] && rows[0].answer;
+      if (!answer || /^UNAVAILABLE:/.test(answer)) throw new Error(answer || 'The model gave no answer.');
+      return { answer: answer, sources: top.map(function (h) { return { id: h.id, title: h.name + ' (' + h.language + ' ' + h.kind + ')', file: h.file, line: h.line }; }) };
+    });
+  }
+  /* [3], [1, 4] and [2:30-41]: each number one of the sources, a line range kept as the link's title. */
+  var CITE = /\[(\d+(?::\s*\d+(?:\s*[-–]\s*\d+)?)?(?:\s*[,;]\s*\d+(?::\s*\d+(?:\s*[-–]\s*\d+)?)?)*)\]/g;
+  function citations(list) {
+    return list.split(/[,;]/).map(function (x) { var m = x.trim().split(':'); return { n: Number(m[0]), lines: m[1] ? m[1].replace(/\s/g, '') : '' }; });
+  }
+  function citedNumbers(text) {
+    var nums = {};
+    String(text || '').replace(CITE, function (m, list) { citations(list).forEach(function (c) { nums[c.n] = true; }); return m; });
+    return nums;
+  }
+  function markdown(text) {
+    return esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/^#{1,4} (.*)$/gm, '<b>$1</b>').replace(/\n/g, '<br>');
+  }
+
+  /* ── ask: the Atlas's face on it ──
+     The answer on the left, each [n] a link that focuses its declaration; on the right the focused
+     declaration (its code, who calls it, what it calls) and the evidence: every declaration found, by name
+     and by meaning, the cited ones marked. */
+  var EXPLORER = 'explorer.html';
   function askPanel() {
     var a = state.ask || {};
-    return '<form class="row" id="askForm"><input id="question" placeholder="How does a request reach the database? Where is retry handled? What builds the prompt?" style="flex:1;min-width:260px" spellcheck="false" value="' + esc(a.question || state.draft || '') + '">' +
-      '<button class="primary">Ask</button></form><div id="indexed" class="note" style="display:none"></div><div id="askOut">' + askBody() + '</div>';
+    return '<form class="row" id="askForm"><input id="question" placeholder="How are users authenticated? Where is the JWT validated? What builds the prompt?" style="flex:1;min-width:260px" spellcheck="false" value="' + esc(a.question || state.draft || '') + '">' +
+      '<button class="primary">Ask</button></form><div id="indexed" class="note"' + (state.index ? '' : ' style="display:none"') + '>' + esc(describeIndex(state.index)) + '</div><div id="askOut">' + askBody() + '</div>';
   }
   function askBody() {
     var a = state.ask;
-    if (!a) return '<div class="note">Ask in words. The answer is written from this project’s own declarations, found by meaning, and every citation is one of them: click it to focus the declaration here, or open it on the Explorer’s map.</div>';
+    if (!a) return '<div class="note">Ask in words. The answer is written from this project’s own code: the declarations whose names match your words, read live, and those closest in meaning from the code index. Every citation is one of them: click it to focus the declaration here, or open it on the Explorer’s map.</div>';
     var left = a.error ? '<div class="note err">' + esc(a.error) + '</div>'
       : a.answer == null ? '<div class="answer"><span class="sub">' + esc(a.status || 'Reading the code…') + '</span></div>'
       : !a.question ? '<div class="note">Ask a question about this project; its answer cites the declarations it was written from.</div>'
       : '<div class="answer">' + renderAnswer(a.answer) + '</div>' + sourcesList(a) +
         '<div class="sub" style="margin-top:6px">' + esc(a.via) + '</div>';
-    var right = (a.focus ? focusCard(a.focus) : '') + '<h3 style="margin-top:0">Evidence — closest declarations by meaning</h3>' + evidence(a);
+    var right = (a.focus ? focusCard(a.focus) : '') + '<h3 style="margin-top:0">Evidence — found by name and by meaning</h3>' + evidence(a);
     return '<div class="ask"><div>' + left + '</div><aside>' + right + '</aside></div>';
   }
-  /* The answer's own markup, escaped, with [n] / [n, m] made into links to the declaration each n names. */
   function renderAnswer(text) {
-    var html = esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
-    return html.replace(/\[(\d+(?:\s*[,;]\s*\d+)*)\]/g, function (m, list) {
-      return list.split(/[,;]/).map(function (x) { return citeLink(Number(x.trim())); }).join('');
-    });
+    return markdown(text).replace(CITE, function (m, list) { return citations(list).map(citeLink).join(''); });
   }
-  function citeLink(n) {
-    var src = state.ask.sources[n - 1];
-    if (!src) return '<a class="cite off" title="Cites nothing the search returned">' + n + '</a>';
-    return '<a class="cite" href="#" data-decl="' + esc(src.id) + '" title="' + esc(src.title) + '">' + n + '</a>';
-  }
-  /* The numbers the answer actually cites: a source it read but never cited is evidence, not a citation. */
-  function citedNumbers(text) {
-    var nums = {};
-    String(text || '').replace(/\[(\d+(?:\s*[,;]\s*\d+)*)\]/g, function (m, list) { list.split(/[,;]/).forEach(function (x) { nums[Number(x.trim())] = true; }); return m; });
-    return nums;
+  function citeLink(c) {
+    var src = state.ask.sources[c.n - 1], label = c.n + (c.lines ? ':' + c.lines : '');
+    if (!src) return '<a class="cite off" title="Cites nothing the search returned">' + esc(label) + '</a>';
+    return '<a class="cite" href="#" data-decl="' + esc(src.id) + '" title="' + esc(src.title + (c.lines ? ', lines ' + c.lines : '')) + '">' + esc(label) + '</a>';
   }
   function sourcesList(a) {
     var nums = citedNumbers(a.answer);
@@ -477,110 +659,84 @@ ORDER BY project</pre></details>
     return '<h3>Cited declarations</h3>' + a.sources.map(function (s, i) {
       if (!nums[i + 1]) return '';
       return '<div class="src"><a class="cite" href="#" data-decl="' + esc(s.id) + '">' + (i + 1) + '</a> <a href="#" data-decl="' + esc(s.id) + '" class="mono">' + esc(s.title) + '</a>' +
-        (s.inProject ? '' : ' <span class="sub">(another indexed project)</span>') +
-        ' · <a href="' + explorerLink(s.id) + '" target="_blank" rel="noopener" class="sub">on the map ↗</a></div>';
+        ' <span class="sub mono">' + esc(s.file) + ':' + esc(s.line) + '</span> · <a href="' + explorerLink(s.id) + '" target="_blank" rel="noopener" class="sub">on the map ↗</a></div>';
     }).join('');
   }
   function evidence(a) {
     if (!a.hits) return '<div class="empty">Searching…</div>';
-    if (a.hits.error) return '<div class="note err">' + esc(a.hits.error) + '</div>';
-    if (!a.hits.length) return '<div class="empty">Nothing in this project’s index is close to that' + (a.indexed === false ? ' — it is not indexed yet (above).' : '.') + '</div>';
+    if (!a.hits.length) return '<div class="empty">' + esc(a.empty || 'Nothing found.') + '</div>';
     var nums = citedNumbers(a.answer), cited = {}; a.sources.forEach(function (s, i) { if (nums[i + 1]) cited[s.id] = i + 1; });
-    return a.hits.map(function (r) {
-      var n = cited[r.id];
-      return '<div class="ev' + (n ? ' cited' : '') + (a.focus && a.focus.id === r.id ? ' focus' : '') + '" data-decl="' + esc(r.id) + '" id="ev-' + esc(r.id) + '">' +
-        (n ? '<span class="n">[' + n + ']</span>' : '') + lang(r.language) + ' <span class="nm">' + esc(r.name) + '</span> <span class="sub">' + esc(r.kind) +
-        ' · ' + Number(r.score || 0).toFixed(2) + '</span><div class="sub mono" style="overflow-wrap:anywhere">' + esc(r.file) + ':' + esc(r.line) + '</div></div>';
-    }).join('');
+    return '<div class="sub" style="margin-bottom:4px">' + a.found.byName + ' by name (live) · ' + a.found.byMeaning + ' by meaning (index) · the first ' + Math.min(ANSWER_FROM, a.hits.length) + ' were read for the answer</div>' +
+      a.hits.slice(0, 25).map(function (r, i) {
+        var n = cited[r.id];
+        return '<div class="ev' + (n ? ' cited' : '') + (a.focus && a.focus.id === r.id ? ' focus' : '') + '" data-decl="' + esc(r.id) + '" id="ev-' + esc(r.id) + '">' +
+          (n ? '<span class="n">[' + n + ']</span>' : '') + lang(r.language) + ' <span class="nm">' + esc(r.name) + '</span> <span class="sub">' + esc(r.kind) +
+          ' · ' + r.lanes.map(function (l) { return l === 'name' ? 'by name' : 'by meaning'; }).join(' + ') + (i < ANSWER_FROM ? '' : ' · not read') +
+          '</span><div class="sub mono" style="overflow-wrap:anywhere">' + esc(r.file) + ':' + esc(r.line) + '</div></div>';
+      }).join('');
   }
   function explorerLink(id) { return EXPLORER + '#/p/' + encodeURIComponent(state.project) + '/decl/' + encodeURIComponent(id); }
+  function declRefs(list, total, none) {
+    if (!list || !list.length) return '<div class="sub">' + esc(none) + '</div>';
+    return list.map(function (c) { return '<div class="src"><a href="#" data-decl="' + esc(c.id) + '" class="mono">' + esc(c.name) + '</a> <span class="sub">' + esc(c.kind) + ' · ' + where({ file: c.file, line: c.line, url: c.url }) + '</span></div>'; }).join('') +
+      (total > list.length ? '<div class="sub">and ' + (total - list.length) + ' more</div>' : '');
+  }
   function focusCard(f) {
     if (f.loading) return '<div class="focus-card"><span class="sub">Reading the declaration…</span></div>';
-    if (f.missing) return '<div class="focus-card"><b class="mono">' + esc(f.id) + '</b><div class="note warn">Not in the project as read now: it was deleted or renamed since it was indexed. The next index run (every 15 minutes) catches up.</div></div>';
-    var d = f.row;
+    if (f.missing) return '<div class="focus-card"><b class="mono">' + esc(f.id) + '</b><div class="note warn">Not in the project as read now: it was deleted or renamed since it was found.' + (f.error ? ' (' + esc(f.error) + ')' : '') + '</div></div>';
+    var d = f.row, code = String(d.code || '').split('\n');
     return '<div class="focus-card" id="focus"><div>' + lang(d.language) + ' <b class="mono">' + esc(d.name) + '</b> <span class="sub">' + esc(d.kind) + '</span></div>' +
+      ((d.annotations || []).length ? '<div class="mono sub">' + esc(d.annotations.join(' ')) + '</div>' : '') +
       (d.signature ? '<div class="mono" style="margin:6px 0;overflow-wrap:anywhere">' + esc(d.signature) + '</div>' : '') +
       (d.doc ? '<div class="sub">' + esc(String(d.doc).slice(0, 400)) + '</div>' : '') +
       '<div style="margin-top:6px">' + where(d) + ' · <a href="' + explorerLink(d.id) + '" target="_blank" rel="noopener">Open on the Explorer’s map ↗</a></div>' +
-      '<h3>Called from</h3>' + (f.callers == null ? '<div class="sub">Reading…</div>' : f.callers.length
-        ? f.callers.slice(0, 8).map(function (c) { return '<div class="src">' + esc(c.caller || '(top level)') + ' <span class="sub">' + where(c) + '</span></div>'; }).join('') +
-          (f.callers.length > 8 ? '<div class="sub">and ' + (f.callers.length - 8) + ' more — matched by name</div>' : '<div class="sub">Matched by name.</div>')
-        : '<div class="sub">No call to anything named ' + esc(d.simpleName) + '.</div>') + '</div>';
+      (code.join('').trim() ? '<pre class="mono" style="max-height:260px;overflow:auto;font-size:11.5px;background:var(--surface2);border-radius:8px;padding:8px;margin:8px 0;white-space:pre">' + esc(code.slice(0, 80).join('\n')) + (code.length > 80 ? '\n…' : '') + '</pre>' : '') +
+      '<h3>Called or used by</h3>' + declRefs(d.callers, d.callerCount, 'Nothing in this project calls it by name.') +
+      '<h3>Calls or uses</h3>' + declRefs(d.callees, d.calleeCount, 'Nothing declared in this project.') +
+      '<div class="sub">Matched by name in the code’s text.</div></div>';
   }
   function drawAsk() { var out = $('askOut'); if (out && state.tab === 'ask') out.innerHTML = askBody(); }
+  function drawIndex() { var el = $('indexed'); if (el && state.tab === 'ask') { el.style.display = state.index ? 'block' : 'none'; el.textContent = describeIndex(state.index); } }
   function bindAsk() {
     $('askForm').addEventListener('submit', function (e) { e.preventDefault(); var q = $('question').value.trim(); if (q) ask(q); });
-    view('IndexedProjects', {}).then(function (rows) {
-      var mine = rows.some(function (r) { return r.project === state.project; });
-      if (state.ask) state.ask.indexed = mine;
-      var el = $('indexed'); if (!el || mine) return;
-      el.style.display = 'block';
-      el.innerHTML = 'This project is not indexed for asking yet. <button type="button" id="makeIndexed">Index it</button> Its types, functions and methods become documents on the next run of the code index (every 15 minutes); only changed code is embedded again.';
-      $('makeIndexed').addEventListener('click', function () {
-        fetch('/api/v1/tools/create_entry', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'IndexedProject', data: { key: state.project, label: short(state.project) } }) })
-          .then(function (r) { if (!r.ok) throw new Error('The appliance would not record the project (' + r.status + ').'); embabel.cache.invalidate('view', 'IndexedProjects', {}); el.textContent = 'Recorded: the code index picks it up on its next run.'; })
-          .catch(function (e) { el.textContent = e.message; });
-      });
-    }).catch(function () { /* the index state is a hint; asking still works */ });
+    var project = state.project;
+    indexState(project).then(function (st) { if (state.project === project) { state.index = st; drawIndex(); } }).catch(function () { /* a hint only */ });
   }
   function ask(question) {
-    var a = state.ask = { question: question, status: 'Searching the code by meaning…', answer: null, sources: [], hits: null, focus: null, via: '' };
+    var project = state.project;
+    var a = state.ask = { question: question, status: 'Finding the code by name and by meaning…', answer: null, sources: [], hits: null, focus: null, via: '', found: { byName: 0, byMeaning: 0 } };
     drawAsk();
-    var hits = view('SearchCode', { project: state.project, query: question })
-      .then(function (rows) { if (state.ask === a) { a.hits = rows; a.status = 'Writing the answer from what the search found…'; drawAsk(); } return rows; })
-      .catch(function (e) { a.hits = { error: e && e.message || String(e) }; drawAsk(); return []; });
-    documentAnswer(question).then(function (r) {
+    ensureIndexed(project, short(project)).then(function (st) {
+      state.index = st; drawIndex();
+      return findCode(project, question);
+    }).then(function (found) {
       if (state.ask !== a) return;
-      a.answer = r.answer; a.via = r.via;
-      a.sources = r.sources.map(function (s) { return { id: declId(s.uri), title: s.title || declId(s.uri), inProject: inProject(s.uri) }; });
+      a.hits = found.hits; a.found = found;
+      if (!found.hits.length) {
+        a.empty = 'Nothing in ' + short(project) + ' has those words in its names or code' + (state.index && state.index.indexed ? ', and nothing in its index is close in meaning.' : ', and its code index has not run yet, so nothing can be found by meaning. Try the names you expect, or ask again after the next run.');
+        a.answer = ''; a.error = a.empty; drawAsk(); return;
+      }
+      a.status = 'Reading the code of the ' + Math.min(ANSWER_FROM, found.hits.length) + ' best declarations, with their callers and callees, and writing the answer…';
       drawAsk();
-    }).catch(function () {
-      return hits.then(function (rows) { return chatAnswer(question, rows); }).then(function (r) {
+      return answerFromCode(project, question, found.hits).then(function (r) {
         if (state.ask !== a) return;
-        a.answer = r.answer; a.via = r.via; a.sources = r.sources; drawAsk();
+        a.answer = r.answer; a.sources = r.sources;
+        a.via = 'Written by the appliance’s model from the code of the ' + r.sources.length + ' declarations read (AnswerFromCode): ' +
+          found.byName + ' found by name, read live; ' + found.byMeaning + ' by meaning from the code index. Calls are matched by name. Each [n] is one of them.';
+        drawAsk();
       });
     }).catch(function (e) { if (state.ask === a) { a.error = e && e.message || String(e); drawAsk(); } });
   }
-  /* The appliance's own grounded Q&A over the code index: typed sources, citations checked against what it read. */
-  function documentAnswer(question) {
-    return fetch('/api/v1/documents/ask', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: 'About the code of ' + short(state.project) + ': ' + question, tag: 'code', topK: 8 }) })
-      .then(function (r) { if (!r.ok) throw new Error('documents/ask ' + r.status); return r.json(); })
-      .then(function (body) {
-        var sources = (body.sources || []).filter(function (s) { return /^code:\/\//.test(s.uri || ''); });
-        if (!body.answer || !sources.length) throw new Error(body.note || 'no grounded answer');
-        return { answer: body.answer, sources: sources, via: 'Answered by the appliance’s document Q&A' + (body.model ? ' (' + body.model + ')' : '') + ' over this project’s code index; each [n] is a declaration it read.' };
-      });
-  }
-  /* The fallback: the assistant, handed the evidence numbered, cites by number. */
-  var chat = null;
-  function chatAnswer(question, rows) {
-    if (!rows.length) throw new Error('Nothing in this project’s code index is close to that question, so there is nothing to answer from.');
-    var top = rows.slice(0, 10);
-    var context = top.map(function (r, i) {
-      return '[' + (i + 1) + '] ' + r.language + ' ' + r.kind + ' ' + r.name + ' — ' + r.file + ':' + r.line + '\n' + (r.signature || '') + (r.doc ? '\n' + String(r.doc).slice(0, 300) : '');
-    }).join('\n\n');
-    chat = chat || embabel.chat.session({});
-    return chat.ask('Answer a question about the code project ' + state.project + ' from these declarations, which a search of its code by meaning returned. ' +
-      'Cite each declaration you rely on by its number in square brackets, like [2]. If they do not answer the question, say so.\n\n' + context + '\n\nQuestion: ' + question)
-      .then(function (m) {
-        return { answer: m && m.content || '', via: 'Answered by the assistant from the ' + top.length + ' closest declarations; each [n] is one of them.',
-                 sources: top.map(function (r) { return { id: r.id, title: r.name + ' (' + r.language + ' ' + r.kind + ')', inProject: true }; }) };
-      });
-  }
-  /* Focus a declaration: its live row, its callers, and its place in the evidence. */
+  /* Focus a declaration: its code, its callers and callees, and its place in the evidence. */
   function focus(id) {
     var a = state.ask; if (!a) return;
     a.focus = { id: id, loading: true }; drawAsk();
     var ev = document.getElementById('ev-' + id); if (ev) ev.scrollIntoView({ block: 'nearest' });
-    view('Declaration', { project: state.project, id: id }).then(function (rows) {
+    view('AskContext', { project: state.project, ids: id }).then(function (rows) {
       if (!a.focus || a.focus.id !== id) return;
-      if (!rows.length) { a.focus = { id: id, missing: true }; drawAsk(); return; }
-      a.focus = { id: id, row: rows[0], callers: null }; drawAsk();
-      return view('WhoCalls', { project: state.project, name: rows[0].simpleName }).then(function (calls) {
-        if (a.focus && a.focus.id === id) { a.focus.callers = calls; drawAsk(); }
-      });
+      a.focus = rows.length ? { id: id, row: rows[0] } : { id: id, missing: true };
+      drawAsk();
+      var card = $('focus'); if (card) card.scrollIntoView({ block: 'nearest' });
     }).catch(function (e) { if (a.focus && a.focus.id === id) { a.focus = { id: id, missing: true, error: e && e.message }; drawAsk(); } });
     var url = '#project=' + encodeURIComponent(state.project) + '&decl=' + encodeURIComponent(id);
     if (location.hash !== url) history.replaceState(null, '', url);
@@ -637,7 +793,7 @@ ORDER BY project</pre></details>
     if (!m) return;
     var key = decodeURIComponent(m[1]); if (key.length >= 400) return;
     if (key !== state.project) analyze(key);
-    if (m[2]) { state.tab = 'ask'; state.ask = state.ask || { question: '', answer: '', sources: [], hits: [], via: '' }; render(); focus(decodeURIComponent(m[2])); }
+    if (m[2]) { state.tab = 'ask'; state.ask = state.ask || { question: '', answer: '', sources: [], hits: [], via: '', found: { byName: 0, byMeaning: 0 } }; render(); focus(decodeURIComponent(m[2])); }
   }
   addEventListener('hashchange', fromHash);
   if (embabel.manifest && embabel.manifest.ready) embabel.manifest.ready.then(fromHash).catch(fromHash); else fromHash();

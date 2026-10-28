@@ -1,0 +1,182 @@
+# Asking a project a question, and answering from its code. The Atlas's and the Explorer's Ask use these
+# four, with SearchCode:
+#
+#   IndexState        whether the project is indexed, and how far: N of M declarations held as documents
+#   MatchDeclarations the declarations whose NAME, owner, path or text hold the question's words, read
+#                     live from the source tree: no embeddings, so it answers before the index has run
+#   SearchCode        the declarations closest in MEANING (the appliance's vector and keyword search, fused)
+#   AskContext        what a declaration is: its code (a type's members), who calls it and what it calls
+#   AnswerFromCode    the answer: the same code and neighbours, numbered, reduced by `synthesize` into an
+#                     explanation that cites each declaration it relies on as [n]
+#
+# The app merges MatchDeclarations and SearchCode by `id`, so a declaration found both ways counts once,
+# and hands the best ids to AnswerFromCode in the order it numbers them.
+#
+# Every `id` is the declaration's key, computed exactly as the code-declarations source (sources.yml)
+# names its document — code://<id> — so a cited declaration, a search hit and a document are one thing.
+# Change the key there and change it here.
+#
+# Calls and uses are matched by NAME in the code's text (`resolution: name`): a call to `save(` is a
+# call to every declaration named save. The views say so, and so must an answer.
+
+- name: IndexState
+  description: >-
+    How much of a project the code index holds: whether it is an IndexedProject, how many of its types,
+    functions, methods and constructors it declares now, how many are held as searchable documents, and
+    when the last was indexed (epoch ms). `indexed` below `declarations` means the index has not yet run
+    for it, or is part way; search by meaning sees only what is indexed, while MatchDeclarations reads
+    every declaration live.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    OPTIONAL MATCH (ip:IndexedProject {key: $project})
+    WITH ip
+    OPTIONAL MATCH (ip)-[:DECLARES]->(d:CodeDeclaration)
+    WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type', 'function', 'method', 'constructor']
+    WITH ip IS NOT NULL AS registered, count(d) AS declarations
+    OPTIONAL MATCH (doc:Document)
+    WHERE doc.uri STARTS WITH 'code://' + CASE WHEN $project STARTS WITH 'https://' THEN substring($project, 8) ELSE $project END + '!'
+    RETURN registered, declarations, count(doc) AS indexed, max(doc.ingestionEpochMs) AS lastIndexedAt
+
+- name: MatchDeclarations
+  description: >-
+    The declarations of an indexed project whose words match a question's, read live from the source
+    tree — no embeddings, so it answers the moment a project is indexed, before any document exists.
+    `terms` is the question's words, lower case, space separated, already stemmed ('security
+    configuration', 'jwt validat'): a term counts where the declaration's name holds it (most), its
+    owner or its path, or its code (least). SecurityConfiguration matches 'security configuration';
+    test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.
+  params:
+    project: { type: string, description: "Project key, as it was indexed." }
+    terms: { type: string, description: "Lower-case words, space separated (stems are fine: 'authenticat')." }
+  cypher: |
+    MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
+    WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type', 'function', 'method', 'constructor']
+    WITH ip, d ORDER BY d.fromLine, d.id
+    WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, '') AS owner, d.name AS name, collect(d) AS same
+    UNWIND range(0, size(same) - 1) AS i
+    WITH same[i] AS d, CASE WHEN project STARTS WITH 'https://' THEN substring(project, 8) ELSE project END + '!' + path + '#' + kind + ':'
+             + CASE WHEN owner = '' THEN name ELSE owner + '.' + name END + CASE WHEN i = 0 THEN '' ELSE '~' + toString(i + 1) END AS key,
+         [t IN split(toLower($terms), ' ') WHERE size(t) > 1] AS ts
+    WITH d, key, ts, size([t IN ts WHERE toLower(d.name) CONTAINS t]) AS inName,
+         size([t IN ts WHERE toLower(coalesce(d.owner, '')) CONTAINS t]) AS inOwner,
+         size([t IN ts WHERE toLower(d.path) CONTAINS t]) AS inPath,
+         size([t IN ts WHERE toLower(coalesce(d.text, '')) CONTAINS t]) AS inText
+    WHERE size(ts) > 0 AND inName + inOwner + inText > 0
+    WITH d, key, inName, inOwner, inPath, inText,
+         (3.0 * inName + 1.0 * inOwner + 0.5 * inPath + 0.75 * inText) / size(ts)
+         + CASE WHEN inName = size(ts) THEN 1.0 ELSE 0.0 END
+         + CASE WHEN d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type'] THEN 0.5
+                WHEN d.kind = 'constructor' THEN -0.5 ELSE 0.0 END
+         - CASE WHEN toLower(d.path) CONTAINS 'test' THEN 1.5 ELSE 0.0 END AS score
+    RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS name,
+           d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url, score,
+           inName AS termsInName, inText AS termsInCode, key AS id
+    ORDER BY score DESC, line LIMIT 25
+
+- name: AskContext
+  description: >-
+    Declarations of an indexed project by id ('|' between ids), each with what an explanation needs:
+    its signature, annotations and doc; its code (a function's lines, numbered; a type's members, up to
+    about 4,000 characters); the functions and methods elsewhere that call it or use the type
+    (`callers`, at most 8 listed of `callerCount`), and the declarations of the same language its code
+    calls or uses (`callees`). Calls are matched by NAME in the code's text, so a common name is
+    over-counted. Test code is left out of callers and callees unless the declaration is itself a test.
+  params:
+    project: { type: string, description: "Project key, as it was indexed." }
+    ids: { type: string, description: "Declaration ids (as SearchCode, MatchDeclarations or a citation give them), '|' between them." }
+  cypher: |
+    MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
+    WITH ip, d ORDER BY d.fromLine, d.id
+    WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, '') AS owner, d.name AS name, collect(d) AS same
+    UNWIND range(0, size(same) - 1) AS i
+    WITH same[i] AS d, CASE WHEN project STARTS WITH 'https://' THEN substring(project, 8) ELSE project END + '!' + path + '#' + kind + ':'
+             + CASE WHEN owner = '' THEN name ELSE owner + '.' + name END + CASE WHEN i = 0 THEN '' ELSE '~' + toString(i + 1) END AS key
+    WITH collect({d: d, key: key, code: d.kind IN ['function', 'method', 'constructor'], test: toLower(d.path) CONTAINS 'test',
+                  type: d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type']}) AS all
+    UNWIND [x IN all WHERE x.key IN split($ids, '|')] AS picked
+    WITH all, picked.d AS d, picked.key AS id, picked.type AS isType, picked.test AS isTest
+    WITH all, d, id, isType, isTest,
+         CASE WHEN isType
+              THEN [' ' + d.name + ' ', ' ' + d.name + '(', ' ' + d.name + '<', ' ' + d.name + '.', ' ' + d.name + ')', '(' + d.name + ' ', '(' + d.name + '.', '<' + d.name + '>', '<' + d.name + ',', ' ' + d.name + '::', ': ' + d.name + ',', ' ' + d.name + '\n']
+              ELSE ['.' + d.name + '(', ' ' + d.name + '(', '(' + d.name + '(', '!' + d.name + '(', '\t' + d.name + '(', '::' + d.name, '.' + d.name + ' {', '.' + d.name + '{'] END AS uses
+    WITH all, d, id, isType, isTest,
+         [x IN all WHERE x.code AND x.key <> id AND (isTest OR NOT x.test)
+            AND NOT (x.d.path = d.path AND x.d.fromLine <= d.fromLine AND x.d.toLine >= d.toLine)
+            AND NOT (x.d.path = d.path AND x.d.fromLine >= d.fromLine AND x.d.toLine <= d.toLine)
+            AND any(u IN uses WHERE x.d.text CONTAINS u)] AS callers,
+         [x IN all WHERE isType AND x.d.owner = d.name AND x.d.path = d.path] AS members
+    WITH all, d, id, isType, isTest, callers, members,
+         CASE WHEN isType THEN reduce(acc = '', m IN members | CASE WHEN size(acc) > 4000 THEN acc ELSE acc + coalesce(m.d.text, toString(m.d.fromLine) + ': ' + coalesce(m.d.signature, m.d.name)) + '\n' END)
+              ELSE coalesce(d.text, '') END AS body
+    WITH d, id, callers, members, body,
+         [x IN all WHERE x.key <> id AND size(x.d.name) > 3 AND x.d.language = d.language AND (x.code OR x.type) AND (isTest OR NOT x.test)
+            AND NOT (x.d.path = d.path AND x.d.fromLine >= d.fromLine AND x.d.toLine <= d.toLine)
+            AND NOT (x.d.path = d.path AND x.d.fromLine <= d.fromLine AND x.d.toLine >= d.toLine)
+            AND any(u IN CASE WHEN x.code THEN ['.' + x.d.name + '(', ' ' + x.d.name + '(', '(' + x.d.name + '(', '!' + x.d.name + '(', '::' + x.d.name]
+                              ELSE [' ' + x.d.name + ' ', ' ' + x.d.name + '(', ' ' + x.d.name + '<', ' ' + x.d.name + '.', '(' + x.d.name + ' ', '(' + x.d.name + '.', '<' + x.d.name + '>', ' ' + x.d.name + '::', ': ' + x.d.name] END
+                   WHERE body CONTAINS u)] AS callees
+    RETURN id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS name, d.name AS simpleName,
+           d.signature AS signature, d.javadoc AS doc, d.annotationText AS annotations, d.path AS file, d.fromLine AS line, d.toLine AS toLine, d.url AS url,
+           CASE WHEN size(body) > 4000 THEN substring(body, 0, 4000) + '\n…' ELSE body END AS code, size(members) AS memberCount,
+           size(callers) AS callerCount,
+           [c IN callers[0..8] | {id: c.key, name: CASE WHEN c.d.owner = '' THEN c.d.name ELSE c.d.owner + '.' + c.d.name END, kind: c.d.kind, file: c.d.path, line: c.d.fromLine, url: c.d.url}] AS callers,
+           size(callees) AS calleeCount,
+           [c IN callees[0..12] | {id: c.key, name: CASE WHEN c.d.owner = '' THEN c.d.name ELSE c.d.owner + '.' + c.d.name END, kind: c.d.kind, file: c.d.path, line: c.d.fromLine, url: c.d.url}] AS callees,
+           'name' AS resolution
+
+- name: AnswerFromCode
+  description: >-
+    An answer to a question about an indexed project, written from its code: the declarations given
+    (ids, '|' between them, best first) are numbered [1], [2], … in that order, each handed to the model
+    with its signature, annotations, doc, code (more for the first three) and the names of what calls it
+    and what it calls (matched by name), and `synthesize` traces through them to explain how the code
+    does what is asked, citing each declaration it relies on by its number ([2], or [2:30-41] for lines).
+    One model call. It answers only from the code given: what the declarations do not show, it says is
+    not shown. Find the ids with MatchDeclarations and SearchCode.
+  params:
+    project: { type: string, description: "Project key, as it was indexed." }
+    question: { type: string, description: "The question, in words." }
+    ids: { type: string, description: "Declaration ids, best first, '|' between them (at most about 10)." }
+  cypher: |
+    MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
+    WITH ip, d ORDER BY d.fromLine, d.id
+    WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, '') AS owner, d.name AS name, collect(d) AS same
+    UNWIND range(0, size(same) - 1) AS i
+    WITH same[i] AS d, CASE WHEN project STARTS WITH 'https://' THEN substring(project, 8) ELSE project END + '!' + path + '#' + kind + ':'
+             + CASE WHEN owner = '' THEN name ELSE owner + '.' + name END + CASE WHEN i = 0 THEN '' ELSE '~' + toString(i + 1) END AS key
+    WITH collect({d: d, key: key, code: d.kind IN ['function', 'method', 'constructor'], test: toLower(d.path) CONTAINS 'test',
+                  type: d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type']}) AS all, split($ids, '|') AS wanted
+    UNWIND [x IN all WHERE x.key IN wanted] AS picked
+    WITH all, wanted, picked.d AS d, picked.key AS id, picked.type AS isType, picked.test AS isTest
+    WITH all, d, id, isType, isTest, [k IN range(0, size(wanted) - 1) WHERE wanted[k] = id][0] + 1 AS num,
+         CASE WHEN isType
+              THEN [' ' + d.name + ' ', ' ' + d.name + '(', ' ' + d.name + '<', ' ' + d.name + '.', ' ' + d.name + ')', '(' + d.name + ' ', '(' + d.name + '.', '<' + d.name + '>', '<' + d.name + ',', ' ' + d.name + '::', ': ' + d.name + ',', ' ' + d.name + '\n']
+              ELSE ['.' + d.name + '(', ' ' + d.name + '(', '(' + d.name + '(', '!' + d.name + '(', '\t' + d.name + '(', '::' + d.name, '.' + d.name + ' {', '.' + d.name + '{'] END AS uses
+    WITH all, d, id, isType, isTest, num,
+         [x IN all WHERE x.code AND x.key <> id AND (isTest OR NOT x.test)
+            AND NOT (x.d.path = d.path AND x.d.fromLine <= d.fromLine AND x.d.toLine >= d.toLine)
+            AND NOT (x.d.path = d.path AND x.d.fromLine >= d.fromLine AND x.d.toLine <= d.toLine)
+            AND any(u IN uses WHERE x.d.text CONTAINS u)] AS callers,
+         CASE WHEN num <= 3 THEN 6000 ELSE 2500 END AS budget
+    WITH all, d, id, isType, isTest, num, callers, budget,
+         CASE WHEN isType THEN reduce(acc = '', m IN [x IN all WHERE x.d.owner = d.name AND x.d.path = d.path] | CASE WHEN size(acc) > budget THEN acc ELSE acc + coalesce(m.d.text, toString(m.d.fromLine) + ': ' + coalesce(m.d.signature, m.d.name)) + '\n' END)
+              ELSE coalesce(d.text, '') END AS body
+    WITH d, num, callers, budget, body,
+         [x IN all WHERE x.key <> id AND size(x.d.name) > 3 AND x.d.language = d.language AND (x.code OR x.type) AND (isTest OR NOT x.test)
+            AND NOT (x.d.path = d.path AND x.d.fromLine >= d.fromLine AND x.d.toLine <= d.toLine)
+            AND NOT (x.d.path = d.path AND x.d.fromLine <= d.fromLine AND x.d.toLine >= d.toLine)
+            AND any(u IN CASE WHEN x.code THEN ['.' + x.d.name + '(', ' ' + x.d.name + '(', '(' + x.d.name + '(', '!' + x.d.name + '(', '::' + x.d.name]
+                              ELSE [' ' + x.d.name + ' ', ' ' + x.d.name + '(', ' ' + x.d.name + '<', ' ' + x.d.name + '.', '(' + x.d.name + ' ', '(' + x.d.name + '.', '<' + x.d.name + '>', ' ' + x.d.name + '::', ': ' + x.d.name] END
+                   WHERE body CONTAINS u)] AS callees
+    WITH num, '[' + toString(num) + '] ' + d.language + ' ' + d.kind + ' ' + CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END
+           + ', in ' + d.path + ' lines ' + toString(d.fromLine) + '-' + toString(d.toLine) + '\n'
+           + reduce(a = '', t IN coalesce(d.annotationText, []) | a + t + '\n') + coalesce(d.signature, '') + '\n'
+           + CASE WHEN coalesce(d.javadoc, '') = '' THEN '' ELSE d.javadoc + '\n' END
+           + CASE WHEN size(body) > budget THEN substring(body, 0, budget) + '\n…' ELSE body END
+           + '\nCalled or used by (matched by name): ' + CASE WHEN size(callers) = 0 THEN 'nothing in this project' ELSE reduce(a = '', c IN callers[0..6] | a + CASE WHEN c.d.owner = '' THEN c.d.name ELSE c.d.owner + '.' + c.d.name END + '; ') + CASE WHEN size(callers) > 6 THEN 'and ' + toString(size(callers) - 6) + ' more' ELSE '' END END
+           + '\nCalls or uses (matched by name): ' + CASE WHEN size(callees) = 0 THEN 'nothing declared in this project' ELSE reduce(a = '', c IN callees[0..10] | a + CASE WHEN c.d.owner = '' THEN c.d.name ELSE c.d.owner + '.' + c.d.name END + '; ') END AS item
+    ORDER BY num
+    RETURN synthesize(item, 'Answer this question about the code of ' + $project + ': ' + $question
+           + ' Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its number in square brackets, like [2], or with lines, like [2:30-41]. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess.') AS answer,
+           count(item) AS declarations
