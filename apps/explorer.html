@@ -515,6 +515,9 @@
     var byName = terms ? view('MatchDeclarations', { project: project, terms: terms }).catch(function () { return []; }) : Promise.resolve([]);
     var byMeaning = view('SearchCode', { project: project, query: question }).catch(function () { return []; });
     return Promise.all([byName, byMeaning]).then(function (lanes) {
+      /* A name match covering few of the words is weak: keep those within reach of the best. */
+      var best = lanes[0].length ? lanes[0][0].score : 0;
+      if (best > 0) lanes[0] = lanes[0].filter(function (r) { return r.score >= 0.6 * best; });
       var by = {}, order = [], tests = /\btests?\b|\bspec\b/i.test(question);
       [['name', lanes[0]], ['meaning', lanes[1]]].forEach(function (lane) {
         lane[1].forEach(function (r, i) {

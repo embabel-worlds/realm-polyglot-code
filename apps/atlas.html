@@ -205,7 +205,7 @@ WITH ip IS NOT NULL AS registered, count(d) AS declarations
 OPTIONAL MATCH (doc:Document)
 WHERE doc.uri STARTS WITH &#x27;code://&#x27; + CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27;
 RETURN registered, declarations, count(doc) AS indexed, max(doc.ingestionEpochMs) AS lastIndexedAt</pre></details>
-  <details><summary><b>MatchDeclarations</b> — The declarations of an indexed project whose words match a question&#x27;s, read live from the source tree — no embeddings, so it answers the moment a project is indexed, before any document exists. `terms` is the question&#x27;s words, lower case, space separated, already stemmed (&#x27;security configuration&#x27;, &#x27;jwt validat&#x27;): a term counts where the declaration&#x27;s name holds it (most), its owner or its path, or — only where the name holds none — its code (least). SecurityConfiguration matches &#x27;security configuration&#x27;; test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+  <details><summary><b>MatchDeclarations</b> — The declarations of an indexed project whose words match a question&#x27;s, read live from the source tree — no embeddings, so it answers the moment a project is indexed, before any document exists. `terms` is the question&#x27;s words, lower case, space separated, already stemmed (&#x27;security configuration&#x27;, &#x27;jwt validat&#x27;): a term counts where the declaration&#x27;s name holds it (most), its owner or its path, or — only where the name holds none — its code (least); a name the words cover more of ranks higher. SecurityConfiguration matches &#x27;security configuration&#x27;; test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
 WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;, &#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;]
 WITH ip, d ORDER BY d.fromLine, d.id
 WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
@@ -221,6 +221,7 @@ WHERE size(ts) &gt; 0 AND inName + inOwner + inText &gt; 0
 WITH d, key, inName, inOwner, inPath, inText,
      (3.0 * inName + 1.0 * inOwner + 0.5 * inPath + CASE WHEN inName = 0 THEN 0.75 * inText ELSE 0.0 END) / size(ts)
      + CASE WHEN inName = size(ts) THEN 1.0 ELSE 0.0 END
+     + 0.5 * reduce(n = 0, t IN ts | n + CASE WHEN toLower(d.name) CONTAINS t THEN size(t) ELSE 0 END) / size(d.name)
      + CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;] THEN 0.5
             WHEN d.kind = &#x27;constructor&#x27; THEN -0.5 ELSE 0.0 END
      - CASE WHEN toLower(d.path) CONTAINS &#x27;test&#x27; THEN 1.5 ELSE 0.0 END AS score
@@ -305,7 +306,7 @@ WITH num, &#x27;[&#x27; + toString(num) + &#x27;] &#x27; + d.language + &#x27; &
        + &#x27;\nCalls or uses (matched by name): &#x27; + CASE WHEN size(callees) = 0 THEN &#x27;nothing declared in this project&#x27; ELSE reduce(a = &#x27;&#x27;, c IN callees[0..10] | a + CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END + &#x27;; &#x27;) END AS item
 ORDER BY num
 RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $project + &#x27;: &#x27; + $question
-       + &#x27; Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its number in square brackets, like [2], or with lines, like [2:30-41]. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess.&#x27;) AS answer,
+       + &#x27; Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its number in square brackets, like [2], or with lines, like [2:30-41]. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess. Be direct: lead with the answer, then the trace, in at most about 350 words.&#x27;) AS answer,
        count(item) AS declarations</pre></details>
   <h3>What an empty panel means</h3>
   <p>The views read every file of the languages they cover, so an empty answer means none matched — no endpoint in a framework the route
@@ -587,6 +588,9 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
     var byName = terms ? view('MatchDeclarations', { project: project, terms: terms }).catch(function () { return []; }) : Promise.resolve([]);
     var byMeaning = view('SearchCode', { project: project, query: question }).catch(function () { return []; });
     return Promise.all([byName, byMeaning]).then(function (lanes) {
+      /* A name match covering few of the words is weak: keep those within reach of the best. */
+      var best = lanes[0].length ? lanes[0][0].score : 0;
+      if (best > 0) lanes[0] = lanes[0].filter(function (r) { return r.score >= 0.6 * best; });
       var by = {}, order = [], tests = /\btests?\b|\bspec\b/i.test(question);
       [['name', lanes[0]], ['meaning', lanes[1]]].forEach(function (lane) {
         lane[1].forEach(function (r, i) {

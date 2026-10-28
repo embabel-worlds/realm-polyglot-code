@@ -44,7 +44,7 @@
     tree — no embeddings, so it answers the moment a project is indexed, before any document exists.
     `terms` is the question's words, lower case, space separated, already stemmed ('security
     configuration', 'jwt validat'): a term counts where the declaration's name holds it (most), its
-    owner or its path, or — only where the name holds none — its code (least). SecurityConfiguration matches 'security configuration';
+    owner or its path, or — only where the name holds none — its code (least); a name the words cover more of ranks higher. SecurityConfiguration matches 'security configuration';
     test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.
   params:
     project: { type: string, description: "Project key, as it was indexed." }
@@ -66,6 +66,7 @@
     WITH d, key, inName, inOwner, inPath, inText,
          (3.0 * inName + 1.0 * inOwner + 0.5 * inPath + CASE WHEN inName = 0 THEN 0.75 * inText ELSE 0.0 END) / size(ts)
          + CASE WHEN inName = size(ts) THEN 1.0 ELSE 0.0 END
+         + 0.5 * reduce(n = 0, t IN ts | n + CASE WHEN toLower(d.name) CONTAINS t THEN size(t) ELSE 0 END) / size(d.name)
          + CASE WHEN d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type'] THEN 0.5
                 WHEN d.kind = 'constructor' THEN -0.5 ELSE 0.0 END
          - CASE WHEN toLower(d.path) CONTAINS 'test' THEN 1.5 ELSE 0.0 END AS score
@@ -178,5 +179,5 @@
            + '\nCalls or uses (matched by name): ' + CASE WHEN size(callees) = 0 THEN 'nothing declared in this project' ELSE reduce(a = '', c IN callees[0..10] | a + CASE WHEN c.d.owner = '' THEN c.d.name ELSE c.d.owner + '.' + c.d.name END + '; ') END AS item
     ORDER BY num
     RETURN synthesize(item, 'Answer this question about the code of ' + $project + ': ' + $question
-           + ' Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its number in square brackets, like [2], or with lines, like [2:30-41]. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess.') AS answer,
+           + ' Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its number in square brackets, like [2], or with lines, like [2:30-41]. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess. Be direct: lead with the answer, then the trace, in at most about 350 words.') AS answer,
            count(item) AS declarations
