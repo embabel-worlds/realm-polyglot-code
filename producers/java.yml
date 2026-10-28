@@ -1,5 +1,5 @@
-# Java, read with the `source` kind's `from: project` emits: a parser that resolves names through the
-# file's imports, so its rows say more than syntax alone (`resolution: type` where it knows).
-- { name: javaTypes,   kind: source, from: project, emit: types }
-- { name: javaMembers, kind: source, from: project, emit: members }
-- { name: javaImports, kind: source, from: project, emit: imports }
+# Java, read with the `source-tree` kind's Java emits: names resolved by binary name through the
+# file's own imports and types, so its rows say more than syntax alone.
+- { name: javaTypes,   kind: source-tree, emit: types,   languages: [java] }
+- { name: javaMembers, kind: source-tree, emit: members, languages: [java] }
+- { name: javaImports, kind: source-tree, emit: imports, languages: [java] }

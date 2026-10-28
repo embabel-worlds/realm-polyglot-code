@@ -89,7 +89,7 @@
   <p>Nothing about your project is uploaded or kept. When you map it, the appliance reads it where it lives: a repository at the commit its
   branch or tag points to now (fetched once without history, then kept by commit — a commit never changes), or a folder in the workspace the
   appliance owner mounted, read afresh each time. TypeScript, JavaScript, Python, Go, Rust, C, C++, C#, Ruby, PHP, Kotlin, Scala and Swift are
-  parsed with tree-sitter, tolerant of code that does not compile; Java with a parser that resolves names through the file's imports.
+  parsed with tree-sitter, tolerant of code that does not compile; Java's names are resolved through the file's own imports and types.
   Each file is bounded in size and parse time, and one that is skipped is reported.</p>
   <h3>One model for every language</h3>
   <p>Every language's files, declarations, imports and calls are children of the same parents — Source, SourceDeclaration, SourceImport,

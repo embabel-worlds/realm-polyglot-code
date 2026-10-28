@@ -7,9 +7,9 @@
 #   (p)-[:DECLARES_TYPE]->(t:JavaCodeType)     Java's types, by binary name
 #
 # Name a parent (Source, SourceDeclaration, SourceImport, CallSite) to read every language at once;
-# name a child (PythonDeclaration, GoCall, JavaCodeMember) to read one. Thirteen languages are read
-# with tree-sitter (the `source-tree` kind); Java with a parser that resolves types (the `source`
-# kind), so Java's rows say more and its calls are not here.
+# name a child (PythonDeclaration, GoCall, JavaCodeMember) to read one. Fourteen languages are read
+# with tree-sitter (the `source-tree` kind); Java's types, members and imports by binary name, so
+# Java's rows say more and its calls are not here.
 #
 # A key is a repository (`https://github.com/acme/shop@v2`, the default branch without `@ref`) or a
 # folder (under the world's data/, or in the owner's mounted workspace). Every row carries `project`
