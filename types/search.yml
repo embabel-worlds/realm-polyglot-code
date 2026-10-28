@@ -1,0 +1,52 @@
+# Search a project's code by what it does. A project the user marks (IndexedProject) has its types,
+# functions, methods and constructors kept as documents by the `code-declarations` source
+# (sources.yml), one per declaration, re-read on a schedule: a declaration whose text has not changed is
+# not ingested again, and one that is gone is pruned. The appliance's document index searches them; the
+# views (SearchCode, SearchAndCallers) lead each hit back to the live declaration and the graph around it.
+
+- name: IndexedProject
+  userAnchor: false
+  description: "A project whose code is kept searchable by meaning. Create one with its key to index it (create_entry type IndexedProject, data {key}); delete it to stop. The `code-declarations` documents source reads every IndexedProject on its schedule."
+  virtualJoins:
+    - { anchorLabel: IndexedProject, relationship: DECLARES, keyField: key, recordKeyField: anchorKey, producer: allDeclarations, maxFanoutTotal: 200000,
+        description: "(:IndexedProject {key})-[:DECLARES]->(d:CodeDeclaration): every declaration of the project, in every language tree-sitter reads." }
+  properties:
+    key: { identity: true, description: "The project key: a repository URL (optionally @ref) or a folder." }
+    label: "What the user calls it."
+
+- name: CodeDeclaration
+  parents: [SourceDeclaration]
+  visibility: internal
+  userAnchor: false
+  description: "A declaration of an IndexedProject, in any language tree-sitter reads: what the code search source renders into documents. Reach the same rows of any project from (:CodeProject {key})-[:DECLARES]->(:SourceDeclaration)."
+  properties:
+    path: "File path, relative to the project."
+    language: "The language."
+    line: { type: int, description: "Line it is on." }
+    url: "The line on the repository's host."
+    project: "The project as read: host/repo@commit, or the folder."
+
+- name: CodeSearchHit
+  visibility: internal
+  userAnchor: false
+  description: "A declaration's document in the code search index, found by MEANING from a free-text Concept via RELEVANT_TO (via:'keyword' for its words). Always narrow to code and to one project: WHERE 'code' IN h.tags AND h.uri STARTS WITH 'code://<host/repo>@'. The SearchCode view does both and leads to the live declaration. Per-match data on the EDGE: r.score, r.rank."
+  virtualJoins:
+    - anchorLabel: Concept
+      relationship: RELEVANT_TO
+      via: vector
+      keyField: value
+      recordKeyField: matchedFor
+      producer: codeDocsVector
+      description: "Code whose purpose is close to a FREE-TEXT description: (:Concept {value:'parse money'})-[:RELEVANT_TO]->(h:CodeSearchHit) WHERE 'code' IN h.tags."
+    - anchorLabel: Concept
+      relationship: RELEVANT_TO
+      via: keyword
+      keyField: value
+      recordKeyField: matchedFor
+      producer: codeDocsKeyword
+      description: "Code whose words match a phrase, with via:'keyword' on the edge."
+  properties:
+    id: { identity: true, description: "The document's id." }
+    uri: "code://<declaration id>: the declaration it holds."
+    title: "Its name, language and kind."
+    tags: { cardinality: LIST, description: "`code` for every document of the code search source." }

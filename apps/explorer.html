@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code Explorer</title>
+<meta name="description" content="Any repository in fourteen languages as a map you can work in: its parts and how they depend on each other, what a change would reach, what the most code leans on, what nothing uses, and code found by what it does — each answer linked to its line, and every hit one click from its callers.">
+<link rel="stylesheet" href="/api/v1/apps-runtime/v1/theme.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%237c9cff' stroke-width='2' stroke-linecap='round'%3E%3Crect x='3' y='3' width='6' height='5' rx='1'/%3E%3Crect x='15' y='3' width='6' height='5' rx='1'/%3E%3Crect x='9' y='16' width='6' height='5' rx='1'/%3E%3Cpath d='M6 8v3h12V8M12 11v5'/%3E%3C/g%3E%3C/svg%3E">
+<script src="/api/v1/apps-runtime/v1/embabel.js"></script>
+<script type="application/embabel-app+json">
+{"version":1,"name":"code-explorer","requires":{"lenses":[],"views":["ProjectLanguages","PartDependencies","MutualDependencies","PartContents","Hotspots","UnusedTypes","Impact","WhoUses","WhoCalls","WhereDefined","SearchCode","IndexedProjects"],"realms":["realm-polyglot-code"],"namespaces":[]}}
+</script>
+<style>
+  :root{--bg:#0b0d12;--surface:#121620;--surface2:#171c28;--border:#232a38;--text:#e6e9f0;--dim:#8a94a6;
+        --accent:#7c9cff;--accent2:#a5b8ff;--green:#5fd38d;--red:#ef6b6b;--amber:#e3b341;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding-bottom:56px}
+  a{color:var(--accent2);text-decoration:none} a:hover{text-decoration:underline}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+  .wrap{max-width:1320px;margin:0 auto;padding:20px}
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{font-size:20px;margin:0} .sub{color:var(--dim);font-size:13px}
+  h2{font-size:15px;margin:18px 0 8px} h3{font-size:13px;margin:14px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+  .bar{display:flex;gap:8px;margin:14px 0 6px;flex-wrap:wrap}
+  input[type=text]{flex:1;min-width:240px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:10px 13px;font-size:14px}
+  input[type=text]:focus{outline:none;border-color:var(--accent)}
+  button{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--dim)} button.primary{background:var(--accent);color:#0b0d12;border-color:var(--accent);font-weight:700}
+  button.link{background:none;border:none;color:var(--accent2);padding:0 4px;font-size:12.5px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px}
+  .chip{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer;color:var(--dim)}
+  .chip:hover{color:var(--text);border-color:var(--dim)}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin:12px 0 0}
+  .tab{padding:8px 14px;cursor:pointer;color:var(--dim);border-bottom:2px solid transparent;font-size:13.5px}
+  .tab[aria-selected=true]{color:var(--text);border-bottom-color:var(--accent)}
+  #status{min-height:20px;color:var(--dim);font-size:12.5px;margin:8px 0}
+  #status[data-kind=error]{color:var(--red)}
+  .layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+  @media(min-width:1000px){.layout{grid-template-columns:minmax(0,1fr) 360px}}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;min-width:0}
+  .side{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto}
+  #map{overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;min-height:200px}
+  svg{display:block}
+  .node rect{fill:var(--surface2);stroke:var(--border);stroke-width:1.2;cursor:pointer}
+  .node:hover rect{stroke:var(--dim)} .node[data-selected=true] rect{stroke:var(--accent);stroke-width:2}
+  .node[data-impact="1"] rect{stroke:var(--red);stroke-width:2} .node[data-impact="2"] rect{stroke:var(--amber);stroke-width:2}
+  .node text{fill:var(--text);font:12px -apple-system,sans-serif;pointer-events:none} .node .n{fill:var(--dim);font-size:11px}
+  .edge{fill:none;stroke:#3a4458;opacity:.75} .edge.mutual{stroke:var(--red);opacity:.9} .edge.hot{stroke:var(--accent)}
+  .badge circle{fill:var(--red)} .badge.d2 circle{fill:var(--amber)} .badge text{fill:#0b0d12;font:700 10.5px sans-serif;text-anchor:middle}
+  table{width:100%;border-collapse:collapse;font-size:13px} th{text-align:left;color:var(--dim);font-weight:500;font-size:12px;padding:5px 6px;border-bottom:1px solid var(--border)}
+  td{padding:5px 6px;border-bottom:1px solid #1a2030;vertical-align:top;overflow-wrap:anywhere}
+  .lang{display:inline-block;font-size:11px;padding:0 6px;border-radius:4px;color:#0b0d12;font-weight:600}
+  .empty{color:var(--dim);padding:10px 0}
+  .note{color:var(--dim);font-size:12.5px;margin:6px 0}
+  .hit{padding:10px 0;border-bottom:1px solid #1a2030} .hit .name{font-weight:600} .hit .doc{color:var(--dim);font-size:12.5px;margin:3px 0}
+  .score{display:inline-block;height:6px;background:var(--accent);border-radius:3px;vertical-align:middle;margin-left:6px}
+  .actions{margin-top:4px} .grid3{display:grid;gap:14px;grid-template-columns:1fr} @media(min-width:1100px){.grid3{grid-template-columns:1fr 1fr 1fr}}
+  .legend{color:var(--dim);font-size:12px;margin:6px 2px} .legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin:0 4px 0 10px}
+  .answer{white-space:pre-wrap;background:var(--surface2);border-radius:8px;padding:10px 12px;margin-top:8px;font-size:13px}
+  #embabel-badge{position:fixed;right:12px;bottom:10px;font-size:11.5px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:4px 10px;color:var(--dim)}
+  #embabel-badge a{color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Code Explorer</h1>
+    <span class="sub">Any repository, fourteen languages: its parts, what depends on what, what a change reaches, and code found by what it does.</span>
+  </header>
+
+  <form class="bar" id="projectForm">
+    <input type="text" id="project" placeholder="https://github.com/owner/repo — optionally @branch, tag or commit — or a folder in your workspace" aria-label="Project">
+    <button class="primary" type="submit">Open</button>
+  </form>
+  <div class="chips" id="samples"></div>
+
+  <nav class="tabs" role="tablist" id="tabs">
+    <div class="tab" role="tab" data-tab="map">Map</div>
+    <div class="tab" role="tab" data-tab="search">Search</div>
+    <div class="tab" role="tab" data-tab="review">Fix first</div>
+    <div class="tab" role="tab" data-tab="ask">Ask</div>
+  </nav>
+  <div id="status" role="status"></div>
+
+  <section id="pane-map" hidden>
+    <div class="bar">
+      <input type="text" id="impactName" placeholder="A type — what would a change to it reach?" aria-label="Type for impact">
+      <button id="impactGo">Show impact</button>
+      <button id="impactClear">Clear</button>
+    </div>
+    <div class="legend">Parts are directories; an arrow points from a part to one whose types it uses, thicker for more uses.
+      <i style="background:var(--red)"></i>both ways <i style="background:#3a4458"></i>one way
+      <span style="margin-left:10px">Badges: <b style="color:var(--red)">●</b> uses it directly, <b style="color:var(--amber)">●</b> one step further.</span></div>
+    <div class="layout">
+      <div id="map"><div class="empty" style="padding:16px">Open a project to draw its map.</div></div>
+      <aside class="panel side" id="side"><div class="note">Click a part to see what it holds, what it uses and what uses it.</div></aside>
+    </div>
+  </section>
+
+  <section id="pane-search" hidden>
+    <form class="bar" id="searchForm">
+      <input type="text" id="query" placeholder="What the code does, in words: retry with backoff, where money is formatted, user sign-in…" aria-label="Search">
+      <button class="primary" type="submit">Search</button>
+    </form>
+    <div id="indexState" class="note"></div>
+    <div class="layout">
+      <div class="panel" id="hits"><div class="note">Search finds code by meaning in every language; names are found faster with “Where is it defined?” below.</div>
+        <div class="bar"><input type="text" id="defName" placeholder="A name, exactly as declared" aria-label="Name"><button id="defGo">Where is it defined?</button></div></div>
+      <aside class="panel side" id="follow"><div class="note">Pick a result to follow it: who calls it, where it is used, what a change would reach.</div></aside>
+    </div>
+  </section>
+
+  <section id="pane-review" hidden>
+    <p class="note">Where to look first. Each list cites its file and line; names are matched as written, so where two types share a name the counts include both (sameName says so). Unused types are candidates to check, not dead code.</p>
+    <div class="grid3">
+      <div class="panel"><h2>What the most code leans on</h2><div id="hotspots"></div></div>
+      <div class="panel"><h2>Parts that depend on each other</h2><div id="mutual"></div></div>
+      <div class="panel"><h2>Types nothing else names</h2><div id="unused"></div></div>
+    </div>
+  </section>
+
+  <section id="pane-ask" hidden>
+    <p class="note">Ask the assistant about this project. It answers with the realm's views and searches, citing files and lines.</p>
+    <form class="bar" id="askForm">
+      <input type="text" id="question" placeholder="How does a request reach the database? Where would I add rate limiting?" aria-label="Question">
+      <button class="primary" type="submit">Ask</button>
+    </form>
+    <div id="answer"></div>
+  </section>
+</div>
+<div id="embabel-badge">Built with <a href="https://worlds.embabel.com" target="_blank" rel="noopener">Embabel</a></div>
+
+<script>
+(function () {
+  'use strict';
+  var SAMPLES = [
+    ['FastAPI + React', 'https://github.com/fastapi/full-stack-fastapi-template'],
+    ['JHipster', 'https://github.com/jhipster/jhipster-sample-app'],
+    ['NestJS', 'https://github.com/lujakob/nestjs-realworld-example-app'],
+    ['Go / Gin', 'https://github.com/gothinkster/golang-gin-realworld-example-app'],
+    ['Django', 'https://github.com/gothinkster/django-realworld-example-app'],
+    ['Rails', 'https://github.com/gothinkster/rails-realworld-example-app'],
+    ['Laravel', 'https://github.com/gothinkster/laravel-realworld-example-app'],
+    ['ASP.NET Core', 'https://github.com/realworld-apps/aspnetcore-realworld-example-app'],
+    ['Rust / Rocket', 'https://github.com/TatriX/realworld-rust-rocket'],
+    ['Kotlin / Spring', 'https://github.com/gothinkster/kotlin-spring-realworld-example-app']
+  ];
+  var COLORS = { typescript: '#3178c6', javascript: '#e8d44d', python: '#f2c94c', go: '#00add8', rust: '#dea584', c: '#a8b9cc', cpp: '#f34b7d',
+                 csharp: '#9b6ad6', ruby: '#e0484b', php: '#8892bf', kotlin: '#b47bff', scala: '#dc322f', swift: '#f05138', java: '#e5a03b' };
+  var NAMES = { typescript: 'TypeScript', javascript: 'JavaScript', python: 'Python', go: 'Go', rust: 'Rust', c: 'C', cpp: 'C++', csharp: 'C#',
+                ruby: 'Ruby', php: 'PHP', kotlin: 'Kotlin', scala: 'Scala', swift: 'Swift', java: 'Java' };
+  var TABS = ['map', 'search', 'review', 'ask'];
+  var MAX_PARTS = 60;
+  var state = { project: null, tab: 'map', edges: [], mutual: [], selected: null, loaded: {} };
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return embabel.html.escape(s == null ? '' : String(s)); }
+  function say(text, kind) { var el = $('status'); el.textContent = text || ''; el.dataset.kind = kind || ''; }
+  function rowsOf(r) {
+    if (Array.isArray(r)) return r;
+    if (!r) return [];
+    if (Array.isArray(r.rows)) return r.rows;
+    if (Array.isArray(r.data)) return r.data;
+    if (r.data && Array.isArray(r.data.rows)) return r.data.rows;
+    return [];
+  }
+  /* A view that reads every file it covers answers "none matched" with no rows: that is an answer, not a failure. */
+  function view(name, params) {
+    return embabel.views.invoke(name, params || {}).then(rowsOf).catch(function (e) {
+      if (e && e.reason === 'FETCHED_NOT_MATCHED') return [];
+      throw e;
+    });
+  }
+  function fail(e) { say((e && e.message) || String(e), 'error'); }
+  function lang(l) { return '<span class="lang" style="background:' + (COLORS[l] || '#8a94a6') + '">' + esc(NAMES[l] || l) + '</span>'; }
+  function where(r) {
+    var label = esc(r.file) + (r.line ? ':' + r.line : '');
+    return r.url ? '<a class="mono" href="' + esc(r.url) + '" target="_blank" rel="noopener">' + label + '</a>' : '<span class="mono">' + label + '</span>';
+  }
+  function table(rows, cols) {
+    if (!rows.length) return '<div class="empty">Nothing found.</div>';
+    return '<table><tr>' + cols.map(function (c) { return '<th>' + esc(c[0]) + '</th>'; }).join('') + '</tr>' +
+      rows.map(function (r) { return '<tr>' + cols.map(function (c) { return '<td>' + c[1](r) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table>';
+  }
+  function dirOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? '.' : path.substring(0, i); }
+  function short(dir) { var p = dir.split('/'); return p.length > 2 ? '…/' + p.slice(-2).join('/') : dir; }
+
+  /* ---------- routes: #/p/<key>/<tab>[/<arg>] — validated, never evaluated ---------- */
+  function go(project, tab, arg) {
+    location.hash = '#/p/' + encodeURIComponent(project) + '/' + tab + (arg ? '/' + encodeURIComponent(arg) : '');
+  }
+  function route() {
+    var m = location.hash.match(/^#\/p\/([^/]+)\/(map|search|review|ask)(?:\/([^/]*))?$/);
+    if (!m) { showTab(state.tab); return; }
+    var project = decodeURIComponent(m[1]);
+    if (!/^(https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_.\/-]+(@[A-Za-z0-9_.\/-]+)?|[A-Za-z0-9_.\/-]+)$/.test(project)) { say('That link names no project.', 'error'); return; }
+    var arg = m[3] ? decodeURIComponent(m[3]) : '';
+    if (project !== state.project) { state.project = project; state.loaded = {}; state.selected = null; $('project').value = project; remember(project); }
+    showTab(m[2]);
+    if (m[2] === 'map') { loadMap().then(function () { if (arg) impact(arg); }); }
+    if (m[2] === 'search') { loadIndexState(); if (arg) { $('query').value = arg; search(arg); } }
+    if (m[2] === 'review') loadReview();
+  }
+  function showTab(tab) {
+    state.tab = tab;
+    TABS.forEach(function (t) {
+      $('pane-' + t).hidden = t !== tab;
+      document.querySelector('[data-tab="' + t + '"]').setAttribute('aria-selected', String(t === tab));
+    });
+  }
+  function remember(project) {
+    try {
+      var recent = JSON.parse(localStorage.getItem('code-explorer.recent') || '[]').filter(function (p) { return p !== project; });
+      recent.unshift(project);
+      localStorage.setItem('code-explorer.recent', JSON.stringify(recent.slice(0, 6)));
+    } catch (e) { /* storage is a convenience: a private window has none */ }
+    drawSamples();
+  }
+  function drawSamples() {
+    var recent = [];
+    try { recent = JSON.parse(localStorage.getItem('code-explorer.recent') || '[]'); } catch (e) { recent = []; }
+    var items = recent.map(function (p) { return [p.replace(/^https:\/\/github\.com\//, ''), p, true]; })
+      .concat(SAMPLES.filter(function (s) { return recent.indexOf(s[1]) < 0; }));
+    $('samples').innerHTML = items.map(function (s) {
+      return '<span class="chip" data-project="' + esc(s[1]) + '" title="' + esc(s[1]) + '">' + (s[2] ? '↺ ' : '') + esc(s[0]) + '</span>';
+    }).join('');
+  }
+
+  /* ---------- the map ---------- */
+  function loadMap() {
+    if (state.loaded.map) return Promise.resolve();
+    say('Reading ' + state.project + ' — the first read of a repository takes a few seconds…');
+    $('map').innerHTML = '<div class="empty" style="padding:16px">Reading the project…</div>';
+    return Promise.all([view('PartDependencies', { project: state.project }), view('MutualDependencies', { project: state.project })])
+      .then(function (r) {
+        state.edges = r[0]; state.mutual = r[1]; state.loaded.map = true;
+        drawMap();
+        say(state.edges.length ? '' : 'No part of this project uses another\'s types — it may be one directory, or in a language read for routes only.');
+      }).catch(fail);
+  }
+  function isMutual(a, b) {
+    return state.mutual.some(function (m) { return (m.a === a && m.b === b) || (m.a === b && m.b === a); });
+  }
+  /* Columns by dependency depth: a part that uses nothing sits left, each part right of what it uses; a back edge of a cycle is ignored for placement. */
+  function layout(parts, edges) {
+    var uses = {}; parts.forEach(function (p) { uses[p] = []; });
+    edges.forEach(function (e) { if (uses[e.from] && uses[e.to] !== undefined) uses[e.from].push(e.to); });
+    var depth = {}, visiting = {};
+    function d(p) {
+      if (depth[p] !== undefined) return depth[p];
+      if (visiting[p]) return 0;
+      visiting[p] = true;
+      var best = 0;
+      uses[p].forEach(function (q) { best = Math.max(best, d(q) + 1); });
+      visiting[p] = false;
+      return (depth[p] = best);
+    }
+    parts.forEach(d);
+    return depth;
+  }
+  function drawMap() {
+    var weight = {};
+    state.edges.forEach(function (e) { weight[e.from] = (weight[e.from] || 0) + e.uses; weight[e.to] = (weight[e.to] || 0) + e.uses; });
+    var parts = Object.keys(weight).sort(function (a, b) { return weight[b] - weight[a]; }).slice(0, MAX_PARTS);
+    var keep = {}; parts.forEach(function (p) { keep[p] = true; });
+    var edges = state.edges.filter(function (e) { return keep[e.from] && keep[e.to]; });
+    if (!parts.length) { $('map').innerHTML = '<div class="empty" style="padding:16px">Nothing to draw.</div>'; return; }
+    var depth = layout(parts, edges);
+    var columns = [];
+    parts.forEach(function (p) { (columns[depth[p]] = columns[depth[p]] || []).push(p); });
+    var W = 190, H = 38, GX = 70, GY = 14, PAD = 16, pos = {};
+    columns.forEach(function (col, c) {
+      col.sort(function (a, b) { return weight[b] - weight[a]; });
+      col.forEach(function (p, r) { pos[p] = { x: PAD + c * (W + GX), y: PAD + r * (H + GY) }; });
+    });
+    var width = PAD * 2 + columns.length * (W + GX) - GX, height = PAD * 2 + Math.max.apply(null, columns.map(function (c) { return c.length; })) * (H + GY);
+    var maxUses = Math.max.apply(null, edges.map(function (e) { return e.uses; }).concat([1]));
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">' +
+      '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" fill="#3a4458"/></marker></defs>';
+    edges.forEach(function (e) {
+      var a = pos[e.from], b = pos[e.to], x1 = a.x, y1 = a.y + H / 2, x2 = b.x + W, y2 = b.y + H / 2;
+      if (a.x <= b.x) { x1 = a.x + W; x2 = b.x; }
+      var mx = (x1 + x2) / 2, w = 1 + 4 * Math.sqrt(e.uses / maxUses);
+      svg += '<path class="edge' + (isMutual(e.from, e.to) ? ' mutual' : '') + '" data-from="' + esc(e.from) + '" data-to="' + esc(e.to) + '" stroke-width="' + w.toFixed(1) +
+        '" marker-end="url(#arr)" d="M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2 + '"><title>' +
+        esc(e.from) + ' uses ' + e.uses + ' time(s) ' + e.types + ' type(s) of ' + esc(e.to) + ': ' + esc((e.examples || []).join(', ')) + '</title></path>';
+    });
+    parts.forEach(function (p) {
+      var q = pos[p];
+      svg += '<g class="node" tabindex="0" role="button" data-part="' + esc(p) + '" transform="translate(' + q.x + ',' + q.y + ')">' +
+        '<rect width="' + W + '" height="' + H + '" rx="6"/><text x="9" y="16">' + esc(short(p)) + '</text>' +
+        '<text class="n" x="9" y="30">' + weight[p] + ' uses in or out</text><title>' + esc(p) + '</title></g>';
+    });
+    svg += '</svg>';
+    $('map').innerHTML = svg + (Object.keys(weight).length > parts.length
+      ? '<div class="note" style="padding:6px 10px">Showing the ' + parts.length + ' most connected of ' + Object.keys(weight).length + ' parts.</div>' : '');
+  }
+  function selectPart(part) {
+    state.selected = part;
+    Array.prototype.forEach.call(document.querySelectorAll('.node'), function (n) { n.dataset.selected = String(n.dataset.part === part); });
+    var uses = state.edges.filter(function (e) { return e.from === part; }).sort(function (a, b) { return b.uses - a.uses; });
+    var usedBy = state.edges.filter(function (e) { return e.to === part; }).sort(function (a, b) { return b.uses - a.uses; });
+    function partLink(p, e) { return '<a href="#" data-part="' + esc(p) + '">' + esc(p) + '</a> <span class="note">' + e.uses + ' · ' + esc((e.examples || []).slice(0, 3).join(', ')) + '</span>'; }
+    $('side').innerHTML = '<h2 class="mono">' + esc(part) + '</h2>' +
+      '<h3>Uses</h3>' + (uses.length ? uses.map(function (e) { return '<div>' + partLink(e.to, e) + '</div>'; }).join('') : '<div class="empty">Nothing in other parts.</div>') +
+      '<h3>Used by</h3>' + (usedBy.length ? usedBy.map(function (e) { return '<div>' + partLink(e.from, e) + '</div>'; }).join('') : '<div class="empty">Nothing in other parts.</div>') +
+      '<h3>Holds</h3><div id="contents" class="empty">Reading…</div>';
+    view('PartContents', { project: state.project, part: part }).then(function (rows) {
+      var types = rows.filter(function (r) { return ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type'].indexOf(r.kind) >= 0; });
+      var functions = rows.length - types.length;
+      $('contents').outerHTML = '<div>' + table(types, [['Type', function (r) { return lang(r.language) + ' ' + esc(r.name) + ' <span class="note">' + esc(r.kind) + '</span>'; }],
+        ['Where', where], ['', function (r) { return '<button class="link" data-impact="' + esc(r.name) + '">impact</button>'; }]]) +
+        '<div class="note">' + functions + ' function(s), method(s) and field(s) beside them.</div></div>';
+    }).catch(fail);
+  }
+
+  /* ---------- impact: badges on the parts a change reaches ---------- */
+  function impact(name) {
+    $('impactName').value = name;
+    say('What would a change to ' + name + ' reach…');
+    return view('Impact', { project: state.project, name: name }).then(function (rows) {
+      var byPart = {};
+      rows.forEach(function (r) { var p = dirOf(r.file); var b = byPart[p] = byPart[p] || { d1: 0, d2: 0 }; if (r.depth === 1) b.d1++; else b.d2++; });
+      document.querySelectorAll('.badge').forEach(function (b) { b.remove(); });
+      Array.prototype.forEach.call(document.querySelectorAll('.node'), function (n) {
+        var b = byPart[n.dataset.part];
+        n.dataset.impact = b ? (b.d1 ? '1' : '2') : '';
+        if (!b) return;
+        var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'badge' + (b.d1 ? '' : ' d2'));
+        g.setAttribute('transform', 'translate(182,4)');
+        g.innerHTML = '<circle r="9"/><text y="4">' + (b.d1 + b.d2) + '</text>';
+        n.appendChild(g);
+      });
+      var files = rows.length, parts = Object.keys(byPart).length;
+      say(files ? 'A change to ' + name + ' could reach ' + files + ' file(s) in ' + parts + ' part(s) — matched by name.' : 'Nothing names ' + name + ' outside its own file.');
+    }).catch(fail);
+  }
+
+  /* ---------- search: by meaning, then follow ---------- */
+  function loadIndexState() {
+    return view('IndexedProjects', {}).then(function (rows) {
+      var mine = rows.filter(function (r) { return r.project === state.project; })[0];
+      state.indexed = mine;
+      $('indexState').innerHTML = !mine
+        ? 'This project is not yet searchable by meaning. <button id="makeSearchable">Make it searchable</button> <span class="note">Its types, functions and methods are kept as documents and re-read every 15 minutes; only changed code is embedded again.</span>'
+        : mine.indexedDeclarations
+          ? mine.indexedDeclarations + ' declarations are searchable.'
+          : 'Indexing has been asked for; the source reads it within 15 minutes, then this count fills in.';
+    }).catch(function () { $('indexState').textContent = ''; });
+  }
+  function makeSearchable() {
+    say('Asking for ' + state.project + ' to be indexed…');
+    fetch('/api/v1/tools/create_entry', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'IndexedProject', data: { key: state.project, label: state.project.replace(/^https:\/\/github\.com\//, '') } })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('The appliance would not record the project (' + r.status + ').');
+      embabel.cache.invalidate('view', 'IndexedProjects', {});
+      say('Recorded. The code-declarations source picks it up on its next run.');
+      return loadIndexState();
+    }).catch(fail);
+  }
+  function search(query) {
+    if (!query) return;
+    say('Searching ' + state.project + ' for “' + query + '”…');
+    $('hits').innerHTML = '<div class="empty">Searching…</div>';
+    view('SearchCode', { project: state.project, query: query }).then(function (rows) {
+      say(rows.length ? '' : '');
+      var top = rows.length ? rows[0].score || 1 : 1;
+      $('hits').innerHTML = rows.length ? rows.map(function (r, i) {
+        return '<div class="hit"><div>' + lang(r.language) + ' <span class="name">' + esc(r.name) + '</span> <span class="note">' + esc(r.kind) + '</span>' +
+          '<span class="score" style="width:' + Math.round(60 * (r.score || 0) / top) + 'px" title="score ' + Number(r.score || 0).toFixed(3) + '"></span></div>' +
+          (r.doc ? '<div class="doc">' + esc(String(r.doc).split('\n')[0]) + '</div>' : '') +
+          '<div class="mono note">' + esc(r.signature || '') + '</div><div>' + where(r) + '</div>' +
+          '<div class="actions"><button class="link" data-follow="' + i + '">follow it</button></div></div>';
+      }).join('') : '<div class="empty">' + (state.indexed && state.indexed.indexedDeclarations
+        ? 'Nothing close to that. Try other words, or a name with “Where is it defined?”.'
+        : 'This project is not searchable yet — see above.') + '</div>';
+      state.hits = rows;
+    }).catch(fail);
+  }
+  function follow(r) {
+    var name = r.name.split('.').pop();
+    $('follow').innerHTML = '<h2>' + esc(r.name) + '</h2><div>' + where(r) + '</div>' +
+      '<div class="actions"><button class="link" data-impact="' + esc(name) + '">impact on the map</button></div>' +
+      '<h3>Called from</h3><div id="callers" class="empty">Reading…</div><h3>Used as a type in</h3><div id="users" class="empty">Reading…</div>';
+    view('WhoCalls', { project: state.project, name: name }).then(function (rows) {
+      $('callers').outerHTML = '<div>' + table(rows.slice(0, 50), [['Caller', function (c) { return lang(c.language) + ' ' + esc(c.caller || '(top level)'); }], ['Where', where]]) +
+        (rows.length > 50 ? '<div class="note">and ' + (rows.length - 50) + ' more</div>' : '') + '<div class="note">Calls to anything named ' + esc(name) + '.</div></div>';
+    }).catch(fail);
+    view('WhoUses', { project: state.project, name: name }).then(function (rows) {
+      var types = rows.filter(function (u) { return u.how === 'type'; });
+      $('users').outerHTML = '<div>' + table(types.slice(0, 50), [['In', function (u) { return lang(u.language) + ' ' + esc(u.usedIn || '(top level)'); }], ['Where', where]]) + '</div>';
+    }).catch(fail);
+  }
+  function whereDefined(name) {
+    if (!name) return;
+    view('WhereDefined', { project: state.project, name: name }).then(function (rows) {
+      state.hits = rows.map(function (r) { return { name: r.owner ? r.owner + '.' + r.name : r.name, language: r.language, kind: r.kind, signature: r.signature, doc: r.doc, file: r.file, line: r.line, url: r.url }; });
+      $('hits').innerHTML = state.hits.length ? state.hits.map(function (r, i) {
+        return '<div class="hit"><div>' + lang(r.language) + ' <span class="name">' + esc(r.name) + '</span> <span class="note">' + esc(r.kind) + '</span></div>' +
+          '<div class="mono note">' + esc(r.signature || '') + '</div><div>' + where(r) + '</div><div class="actions"><button class="link" data-follow="' + i + '">follow it</button></div></div>';
+      }).join('') : '<div class="empty">Nothing is declared as ' + esc(name) + '.</div>';
+    }).catch(fail);
+  }
+
+  /* ---------- review ---------- */
+  function loadReview() {
+    if (state.loaded.review) return;
+    state.loaded.review = true;
+    ['hotspots', 'mutual', 'unused'].forEach(function (id) { $(id).innerHTML = '<div class="empty">Reading…</div>'; });
+    view('Hotspots', { project: state.project, limit: 15 }).then(function (rows) {
+      $('hotspots').innerHTML = table(rows, [['Type', function (r) { return lang(r.language) + ' ' + esc(r.type) + (r.sameName > 1 ? ' <span class="note" title="other types share this name">×' + r.sameName + '</span>' : ''); }],
+        ['Files', function (r) { return r.files + ' <span class="note">in ' + r.directories + ' part(s)</span>'; }], ['Declared', where],
+        ['', function (r) { return '<button class="link" data-impact="' + esc(r.type) + '">impact</button>'; }]]);
+    }).catch(fail);
+    view('MutualDependencies', { project: state.project }).then(function (rows) {
+      $('mutual').innerHTML = table(rows, [['Parts', function (r) { return '<span class="mono">' + esc(r.a) + '</span> ⇄ <span class="mono">' + esc(r.b) + '</span>'; }],
+        ['Each way', function (r) { return r.aUsesB + ' (' + esc(r.exampleAtoB) + ') / ' + r.bUsesA + ' (' + esc(r.exampleBtoA) + ')'; }]]);
+    }).catch(fail);
+    view('UnusedTypes', { project: state.project }).then(function (rows) {
+      $('unused').innerHTML = table(rows.slice(0, 100), [['Type', function (r) { return lang(r.language) + ' ' + esc(r.type) + ' <span class="note">' + esc(r.kind) + '</span>'; }], ['Where', where]]) +
+        (rows.length > 100 ? '<div class="note">and ' + (rows.length - 100) + ' more</div>' : '');
+    }).catch(fail);
+  }
+
+  /* ---------- ask ---------- */
+  var chat = null;
+  function ask(question) {
+    if (!question) return;
+    $('answer').innerHTML = '<div class="answer">Thinking…</div>';
+    chat = chat || embabel.chat.session();
+    chat.ask('About the code project ' + state.project + ' (read it with the polyglot-code realm\'s views and code search): ' + question)
+      .then(function (message) {
+        var text = message && (message.text || message.content || message.body) || String(message || '');
+        $('answer').innerHTML = '<div class="answer">' + esc(text) + '</div>';
+      }).catch(function (e) { $('answer').innerHTML = '<div class="answer">' + esc((e && e.message) || String(e)) + '</div>'; });
+  }
+
+  /* ---------- wiring ---------- */
+  $('projectForm').addEventListener('submit', function (e) { e.preventDefault(); var p = $('project').value.trim(); if (p) go(p, state.tab === 'ask' ? 'map' : state.tab); });
+  $('samples').addEventListener('click', function (e) { var c = e.target.closest('.chip'); if (c) go(c.dataset.project, state.tab); });
+  $('tabs').addEventListener('click', function (e) { var t = e.target.closest('.tab'); if (!t) return; if (state.project) go(state.project, t.dataset.tab); else showTab(t.dataset.tab); });
+  $('map').addEventListener('click', function (e) { var n = e.target.closest('.node'); if (n) selectPart(n.dataset.part); });
+  $('map').addEventListener('keydown', function (e) { var n = e.target.closest('.node'); if (n && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); selectPart(n.dataset.part); } });
+  $('impactGo').addEventListener('click', function () { var n = $('impactName').value.trim(); if (n && state.project) go(state.project, 'map', n); });
+  $('impactClear').addEventListener('click', function () { document.querySelectorAll('.badge').forEach(function (b) { b.remove(); }); document.querySelectorAll('.node').forEach(function (n) { n.dataset.impact = ''; }); say(''); });
+  $('searchForm').addEventListener('submit', function (e) { e.preventDefault(); var q = $('query').value.trim(); if (q && state.project) go(state.project, 'search', q); });
+  $('defGo').addEventListener('click', function () { whereDefined($('defName').value.trim()); });
+  $('askForm').addEventListener('submit', function (e) { e.preventDefault(); ask($('question').value.trim()); });
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.id === 'makeSearchable') { makeSearchable(); return; }
+    if (t.dataset && t.dataset.impact) { e.preventDefault(); go(state.project, 'map', t.dataset.impact); return; }
+    if (t.dataset && t.dataset.follow !== undefined) { follow(state.hits[Number(t.dataset.follow)]); return; }
+    if (t.dataset && t.dataset.part && t.tagName === 'A') { e.preventDefault(); selectPart(t.dataset.part); }
+  });
+  addEventListener('hashchange', route);
+  drawSamples();
+  route();
+})();
+</script>
+</body>
+</html>

@@ -137,3 +137,68 @@
     MATCH (p)-[:REFERENCES]->(r2:SourceReference {name: d.name})
     WHERE NOT r2.path IN first
     RETURN DISTINCT 2 AS depth, r2.path AS file, d.name AS via, r2.language AS language
+
+- name: SearchCode
+  description: >-
+    Code found by what it does: the declarations of an indexed project whose purpose is closest to a
+    description, in every language tree-sitter reads, best first, with the declaration's live row. Ask in
+    words ("retry with backoff", "where money is formatted"), not names; WhereDefined finds names. A
+    project is searchable once it is an IndexedProject and the code-declarations source has run.
+  params:
+    project: { type: string, description: "Project key, as it was indexed." }
+    query: { type: string, description: "What the code does, in words." }
+  cypher: |
+    MATCH (c:Concept {value: $query})-[r:RELEVANT_TO]->(doc:CodeSearchHit)
+    WHERE 'code' IN doc.tags AND (doc.uri STARTS WITH 'code://' + split(replace(replace($project, 'https://', ''), '.git', ''), '@')[0] + '@'
+       OR doc.uri STARTS WITH 'code://' + $project + '!')
+    WITH doc, r ORDER BY r.score DESC LIMIT 20
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE 'code://' + d.id = doc.uri
+    RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS name,
+           d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url, r.score AS score, d.id AS id
+    ORDER BY score DESC
+
+- name: SearchAndCallers
+  description: >-
+    Search by meaning, then follow the code: for each of the best matches, every call to it in the
+    project, matched by name. "Where is money formatted, and who relies on it?"
+  params:
+    project: { type: string, description: "Project key, as it was indexed." }
+    query: { type: string, description: "What the code does, in words." }
+  cypher: |
+    MATCH (c:Concept {value: $query})-[r:RELEVANT_TO]->(doc:CodeSearchHit)
+    WHERE 'code' IN doc.tags AND (doc.uri STARTS WITH 'code://' + split(replace(replace($project, 'https://', ''), '.git', ''), '@')[0] + '@'
+       OR doc.uri STARTS WITH 'code://' + $project + '!')
+    WITH doc, r ORDER BY r.score DESC LIMIT 8
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE 'code://' + d.id = doc.uri
+    MATCH (p)-[:CALLS]->(call:CallSite {method: d.name})
+    RETURN d.name AS found, d.path AS declaredIn, d.fromLine AS declaredAt, r.score AS score,
+           call.enclosing AS calledFrom, call.path AS file, call.line AS line, call.language AS language
+    ORDER BY score DESC, file, line LIMIT 200
+
+- name: IndexedProjects
+  description: >-
+    The projects kept searchable by meaning, and how many of each one's declarations the search index
+    holds now.
+  cypher: |
+    MATCH (ip:IndexedProject)
+    OPTIONAL MATCH (d:Document) WHERE 'code' IN d.tags
+      AND (d.uri STARTS WITH 'code://' + split(replace(replace(ip.key, 'https://', ''), '.git', ''), '@')[0] + '@' OR d.uri STARTS WITH 'code://' + ip.key + '!')
+    RETURN ip.key AS project, ip.label AS label, count(d) AS indexedDeclarations
+    ORDER BY project
+
+- name: PartContents
+  description: >-
+    One directory of a project: the types declared directly in it, with their kind, language and line,
+    and how many functions and methods sit beside them. What a part of the code map holds.
+  params:
+    project: { type: string, description: "Project key." }
+    part: { type: string, description: "The directory, as PartDependencies names it ('.' for the root)." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WITH d, CASE WHEN d.path CONTAINS '/' THEN substring(d.path, 0, size(d.path) - size(split(d.path, '/')[-1]) - 1) ELSE '.' END AS dir
+    WHERE dir = $part
+    RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS name,
+           d.path AS file, d.fromLine AS line, d.url AS url
+    ORDER BY file, line LIMIT 500
