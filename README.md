@@ -3,6 +3,8 @@
 Any codebase, in fourteen languages, as one graph — read live from the repository or your mounted
 workspace when a question reaches it. Nothing is ingested.
 
+**Install [realm-code-model](https://github.com/embabel-worlds/realm-code-model) with it.** This realm's types extend parents declared there (`Source`, `SourceDeclaration`, `SourceImport`, `CallSite`, `CodeType`). Without it the realm still loads, but its types lose those parents, so a query that names a parent finds none of its rows.
+
 - **Languages:** TypeScript/TSX, JavaScript/JSX, Python, Go, Rust, C, C++, C#, Ruby, PHP, Kotlin,
   Scala, Swift (tree-sitter), and Java (a type-resolving parser).
 - **One model:** every language's rows are children of the same standard-model parents (`Source`,
