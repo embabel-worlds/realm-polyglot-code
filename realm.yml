@@ -2,8 +2,8 @@ name: polyglot-code
 description: |
   Any codebase, in fourteen languages, as one graph you can query — read where it lives when a
   question reaches it. TypeScript (and TSX), JavaScript (and JSX), Python, Go, Rust, C, C++, C#,
-  Ruby, PHP, Kotlin, Scala and Swift are parsed with tree-sitter; Java with a parser that resolves
-  types. Every language's files, declarations, imports and calls are children of the same
+  Ruby, PHP, Kotlin, Scala, Swift and Java are parsed with tree-sitter, Java's names resolved by binary
+  name. Every language's files, declarations, imports and calls are children of the same
   standard-model parents, so one query spans a Python backend and its TypeScript frontend:
 
     MATCH (p:CodeProject {key: 'https://github.com/acme/shop'})-[:DECLARES]->(d:SourceDeclaration {name: 'Order'})
@@ -20,7 +20,7 @@ description: |
   without `@ref`), or a folder under the world's data/ or in the workspace the appliance owner
   mounted. Nothing is ingested and nothing is stored: a commit is read once and kept; a folder is
   read afresh. Calls outside Java are matched by name (`resolution: name`), and say so. Requires the
-  appliance's `source-tree` and `source` (`from: project`) producer kinds.
+  appliance's `source-tree` producer kind.
 version: 0.1.0
 maturity: experimental
 realmLabel: PolyglotCode

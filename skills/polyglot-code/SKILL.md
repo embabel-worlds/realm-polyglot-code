@@ -37,7 +37,7 @@ Relationships from `CodeProject`: `HAS_SOURCE` (Source), `DECLARES` (SourceDecla
 
 Outside Java a call is matched by NAME: `resolution: 'name'`. "`OrderService.save` calls something
 named `get` on `this.http`" is true; "it calls `HttpClient.get`" is a guess. Say which. Java's
-members come from a parser that resolves types; its call graph is in the Java realms.
+members are resolved by binary name through the file's imports; its call graph is in the Java realms.
 
 ## Routes
 

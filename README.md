@@ -6,7 +6,7 @@ workspace when a question reaches it. Nothing is ingested.
 **Install [realm-code-model](https://github.com/embabel-worlds/realm-code-model) with it.** This realm's types extend parents declared there (`Source`, `SourceDeclaration`, `SourceImport`, `CallSite`, `CodeType`). Without it the realm still loads, but its types lose those parents, so a query that names a parent finds none of its rows.
 
 - **Languages:** TypeScript/TSX, JavaScript/JSX, Python, Go, Rust, C, C++, C#, Ruby, PHP, Kotlin,
-  Scala, Swift (tree-sitter), and Java (a type-resolving parser).
+  Scala, Swift and Java, all read with tree-sitter; Java's names are resolved by binary name.
 - **One model:** every language's rows are children of the same standard-model parents (`Source`,
   `SourceDeclaration`, `SourceImport`, `CallSite`), so a query spans a Python backend and its
   TypeScript frontend, or a Java service and its Kotlin client.
@@ -42,4 +42,4 @@ SharedNames(project: 'https://github.com/fastapi/full-stack-fastapi-template')
 `tools/generate.py` writes the per-language types and producers; edit it, not them.
 
 Calls outside Java are matched by name and say so (`resolution: name`). Requires the appliance's
-`source-tree` and `source` producer kinds. Apache-2.0.
+`source-tree` producer kind. Apache-2.0.
