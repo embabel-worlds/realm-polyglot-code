@@ -1,8 +1,18 @@
 # A project's code, kept searchable by meaning. For each IndexedProject, every type, function, method and
-# constructor becomes one document (code://<declaration id>), tagged `code`. The host renders, ingests and
-# embeds them like any document: an unchanged declaration is skipped by the hash of its text, and one that
-# no longer exists is pruned after a complete run. No entity pass: a declaration already is a graph entity,
-# so a model call per declaration looking for the people and organizations it mentions would find nothing.
+# constructor becomes one document, tagged `code`. The host renders, ingests and embeds them like any
+# document: an unchanged declaration is skipped by the hash of its text, and one that no longer exists is
+# pruned after a complete run. No entity pass: a declaration already is a graph entity, so a model call per
+# declaration looking for the people and organizations it mentions would find nothing.
+#
+# A document is named by what the declaration IS, never by where it sits or which commit it was read at:
+#
+#   code://<project>!<path>#<kind>:<owner.name>       the project key without https://
+#   code://<project>!<path>#<kind>:<owner.name>~2     the second of that name in the file (an overload), by line
+#
+# and its text holds no line numbers. So a new commit re-embeds only the declarations whose text changed,
+# code that moves keeps its document, and a declaration deleted or renamed is pruned (a rename lands as a
+# new document). The views SearchCode, SearchAndCallers and Declaration find the live declaration by the
+# same key, computed the same way; change the key here and change it there.
 sources:
   - name: code-declarations
     lane: documents
@@ -11,22 +21,29 @@ sources:
       cypher: |
         MATCH (ip:IndexedProject)-[:DECLARES]->(d:CodeDeclaration)
         WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type', 'function', 'method', 'constructor']
-        RETURN ip.key AS project, d.id AS id, d.language AS language, d.kind AS kind, d.name AS name,
-               coalesce(d.owner, '') AS owner, coalesce(d.signature, '') AS signature, coalesce(d.javadoc, '') AS doc,
-               coalesce(d.text, '') AS text, d.path AS path, d.fromLine AS line
+        WITH ip, d ORDER BY d.fromLine, d.id
+        WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, '') AS owner, d.name AS name, collect(d) AS same
+        UNWIND range(0, size(same) - 1) AS i
+        WITH project, path, kind, owner, name, i, same[i] AS d
+        RETURN CASE WHEN project STARTS WITH 'https://' THEN substring(project, 8) ELSE project END + '!' + path + '#' + kind + ':'
+                 + CASE WHEN owner = '' THEN name ELSE owner + '.' + name END + CASE WHEN i = 0 THEN '' ELSE '~' + toString(i + 1) END AS key,
+               project, d.language AS language, kind, name, owner, coalesce(d.signature, '') AS signature,
+               coalesce(d.javadoc, '') AS doc, coalesce(d.text, '') AS text, path
     document:
-      uri: "code://{{ id }}"
+      uri: "code://{{ key }}"
       title: "{{ name if not owner else owner ~ '.' ~ name }} ({{ language }} {{ kind }})"
+      # `text` is the declaration's lines, each numbered (`12: ...`); the numbers are cut, so code that
+      # moves renders the same text and is not embedded again.
       content: |
         # {{ name if not owner else owner ~ '.' ~ name }}
 
-        A {{ language }} {{ kind }} in {{ path }}, line {{ line }}, of {{ project }}.
+        A {{ language }} {{ kind }} in {{ path }}, of {{ project }}.
 
         {{ signature }}
 
         {{ doc }}
 
-        {{ text }}
+        {{ text | regex_replace('(?m)^[0-9]+: ', '') }}
       sourceKind: code
       tags: [code]
     sync:
