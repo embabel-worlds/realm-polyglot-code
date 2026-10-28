@@ -205,7 +205,7 @@ WITH ip IS NOT NULL AS registered, count(d) AS declarations
 OPTIONAL MATCH (doc:Document)
 WHERE doc.uri STARTS WITH &#x27;code://&#x27; + CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27;
 RETURN registered, declarations, count(doc) AS indexed, max(doc.ingestionEpochMs) AS lastIndexedAt</pre></details>
-  <details><summary><b>MatchDeclarations</b> — The declarations of an indexed project whose words match a question&#x27;s, read live from the source tree — no embeddings, so it answers the moment a project is indexed, before any document exists. `terms` is the question&#x27;s words, lower case, space separated, already stemmed (&#x27;security configuration&#x27;, &#x27;jwt validat&#x27;): a term counts where the declaration&#x27;s name holds it (most), its owner or its path, or — only where the name holds none — its code (least); a name the words cover more of ranks higher. SecurityConfiguration matches &#x27;security configuration&#x27;; test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+  <details><summary><b>MatchDeclarations</b> — The declarations of an indexed project whose words match a question&#x27;s, read live from the source tree — no embeddings, so it answers the moment a project is indexed, before any document exists. `terms` is the question&#x27;s words, lower case, space separated, already stemmed (&#x27;security configuration&#x27;, &#x27;jwt validat&#x27;): a term counts where the declaration&#x27;s name holds it (most), its owner or its path, or — only where the name holds none — its code (least); a name the words cover more of ranks higher. In a name a term must start a word (camelCase, snake_case or an acronym), so &#x27;valid&#x27; matches validateToken and JWTValidator, not InvalidPasswordException. SecurityConfiguration matches &#x27;security configuration&#x27;; test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
 WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;, &#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;]
 WITH ip, d ORDER BY d.fromLine, d.id
 WITH ip.key AS project, d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
@@ -213,13 +213,14 @@ UNWIND range(0, size(same) - 1) AS i
 WITH same[i] AS d, CASE WHEN project STARTS WITH &#x27;https://&#x27; THEN substring(project, 8) ELSE project END + &#x27;!&#x27; + path + &#x27;#&#x27; + kind + &#x27;:&#x27;
          + CASE WHEN owner = &#x27;&#x27; THEN name ELSE owner + &#x27;.&#x27; + name END + CASE WHEN i = 0 THEN &#x27;&#x27; ELSE &#x27;~&#x27; + toString(i + 1) END AS key,
      [t IN split(toLower($terms), &#x27; &#x27;) WHERE size(t) &gt; 1] AS ts
-WITH d, key, ts, size([t IN ts WHERE toLower(d.name) CONTAINS t]) AS inName,
+WITH d, key, ts, size([t IN ts WHERE toLower(d.name) STARTS WITH t OR d.name CONTAINS toUpper(substring(t, 0, 1)) + substring(t, 1)
+                            OR d.name CONTAINS toUpper(t) OR toLower(d.name) CONTAINS &#x27;_&#x27; + t]) AS inName,
      size([t IN ts WHERE toLower(coalesce(d.owner, &#x27;&#x27;)) CONTAINS t]) AS inOwner,
      size([t IN ts WHERE toLower(d.path) CONTAINS t]) AS inPath,
      size([t IN ts WHERE toLower(coalesce(d.text, &#x27;&#x27;)) CONTAINS t]) AS inText
 WHERE size(ts) &gt; 0 AND inName + inOwner + inText &gt; 0
 WITH d, key, inName, inOwner, inPath, inText,
-     (3.0 * inName + 1.0 * inOwner + 0.5 * inPath + CASE WHEN inName = 0 THEN 0.75 * inText ELSE 0.0 END) / size(ts)
+     (3.0 * inName + CASE WHEN inName = size(ts) THEN 0.0 ELSE 1.0 * inOwner END + 0.5 * inPath + CASE WHEN inName = 0 THEN 0.75 * inText ELSE 0.0 END) / size(ts)
      + CASE WHEN inName = size(ts) THEN 1.0 ELSE 0.0 END
      + 0.5 * reduce(n = 0, t IN ts | n + CASE WHEN toLower(d.name) CONTAINS t THEN size(t) ELSE 0 END) / size(d.name)
      + CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;] THEN 0.5
@@ -624,8 +625,12 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
     String(text || '').replace(CITE, function (m, list) { citations(list).forEach(function (c) { nums[c.n] = true; }); return m; });
     return nums;
   }
+  /* The answer's own markup, escaped: fenced code as a block, `code`, **bold** and headings inline. */
   function markdown(text) {
-    return esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/^#{1,4} (.*)$/gm, '<b>$1</b>').replace(/\n/g, '<br>');
+    return String(text || '').split(/```[A-Za-z0-9_+-]*\n?/).map(function (part, i) {
+      if (i % 2) return '<pre class="mono" style="font-size:12px;background:rgba(127,127,127,.12);border-radius:6px;padding:8px;overflow:auto;white-space:pre">' + esc(part.replace(/\n$/, '')) + '</pre>';
+      return esc(part).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/^#{1,4} (.*)$/gm, '<b>$1</b>').replace(/\n/g, '<br>');
+    }).join('');
   }
 
   /* ── ask: the Atlas's face on it ──

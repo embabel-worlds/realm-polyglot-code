@@ -44,7 +44,7 @@
     tree — no embeddings, so it answers the moment a project is indexed, before any document exists.
     `terms` is the question's words, lower case, space separated, already stemmed ('security
     configuration', 'jwt validat'): a term counts where the declaration's name holds it (most), its
-    owner or its path, or — only where the name holds none — its code (least); a name the words cover more of ranks higher. SecurityConfiguration matches 'security configuration';
+    owner or its path, or — only where the name holds none — its code (least); a name the words cover more of ranks higher. In a name a term must start a word (camelCase, snake_case or an acronym), so 'valid' matches validateToken and JWTValidator, not InvalidPasswordException. SecurityConfiguration matches 'security configuration';
     test code ranks below the code it tests. Best first, with the same `id` SearchCode returns.
   params:
     project: { type: string, description: "Project key, as it was indexed." }
@@ -58,13 +58,14 @@
     WITH same[i] AS d, CASE WHEN project STARTS WITH 'https://' THEN substring(project, 8) ELSE project END + '!' + path + '#' + kind + ':'
              + CASE WHEN owner = '' THEN name ELSE owner + '.' + name END + CASE WHEN i = 0 THEN '' ELSE '~' + toString(i + 1) END AS key,
          [t IN split(toLower($terms), ' ') WHERE size(t) > 1] AS ts
-    WITH d, key, ts, size([t IN ts WHERE toLower(d.name) CONTAINS t]) AS inName,
+    WITH d, key, ts, size([t IN ts WHERE toLower(d.name) STARTS WITH t OR d.name CONTAINS toUpper(substring(t, 0, 1)) + substring(t, 1)
+                                OR d.name CONTAINS toUpper(t) OR toLower(d.name) CONTAINS '_' + t]) AS inName,
          size([t IN ts WHERE toLower(coalesce(d.owner, '')) CONTAINS t]) AS inOwner,
          size([t IN ts WHERE toLower(d.path) CONTAINS t]) AS inPath,
          size([t IN ts WHERE toLower(coalesce(d.text, '')) CONTAINS t]) AS inText
     WHERE size(ts) > 0 AND inName + inOwner + inText > 0
     WITH d, key, inName, inOwner, inPath, inText,
-         (3.0 * inName + 1.0 * inOwner + 0.5 * inPath + CASE WHEN inName = 0 THEN 0.75 * inText ELSE 0.0 END) / size(ts)
+         (3.0 * inName + CASE WHEN inName = size(ts) THEN 0.0 ELSE 1.0 * inOwner END + 0.5 * inPath + CASE WHEN inName = 0 THEN 0.75 * inText ELSE 0.0 END) / size(ts)
          + CASE WHEN inName = size(ts) THEN 1.0 ELSE 0.0 END
          + 0.5 * reduce(n = 0, t IN ts | n + CASE WHEN toLower(d.name) CONTAINS t THEN size(t) ELSE 0 END) / size(d.name)
          + CASE WHEN d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type'] THEN 0.5

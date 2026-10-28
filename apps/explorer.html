@@ -551,8 +551,12 @@
     String(text || '').replace(CITE, function (m, list) { citations(list).forEach(function (c) { nums[c.n] = true; }); return m; });
     return nums;
   }
+  /* The answer's own markup, escaped: fenced code as a block, `code`, **bold** and headings inline. */
   function markdown(text) {
-    return esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/^#{1,4} (.*)$/gm, '<b>$1</b>').replace(/\n/g, '<br>');
+    return String(text || '').split(/```[A-Za-z0-9_+-]*\n?/).map(function (part, i) {
+      if (i % 2) return '<pre class="mono" style="font-size:12px;background:rgba(127,127,127,.12);border-radius:6px;padding:8px;overflow:auto;white-space:pre">' + esc(part.replace(/\n$/, '')) + '</pre>';
+      return esc(part).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/^#{1,4} (.*)$/gm, '<b>$1</b>').replace(/\n/g, '<br>');
+    }).join('');
   }
 
   /* ---------- ask: the Explorer's face on it ----------
