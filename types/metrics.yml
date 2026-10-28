@@ -1,0 +1,46 @@
+# JAVA'S SYNTAX, COUNTED. The `source-tree` kind runs queries/java-metrics.scm over a project's Java
+# files and emits one row per construct it captures; the views in views/metrics.yml count them per
+# method and per hundred lines.
+#
+#   MATCH (p:CodeProject {key: $project})-[:HAS_CONSTRUCT]->(c:JavaConstruct)   every construct
+#   (p)-[:HAS_SOURCE]->(s:JavaSource)                                              every Java file, with its lines
+
+- name: JavaConstruct
+  visibility: internal
+  userAnchor: false
+  description: "One Java construct a project's code contains, as the realm's query captures it: a method or constructor (`method`), `if`, `switch`, `ternary`, `loop` (for, enhanced for, while, do), `try`, `catch`, `instanceof`, `cast` and `cast.type` (the type cast to). Each names the declaration it is in (`enclosingId`, `enclosing`, `enclosingKind`). Code in a comment is not a construct. Reach it from (:CodeProject {key})-[:HAS_CONSTRUCT]->."
+  virtualJoins:
+    - { anchorLabel: CodeProject, relationship: HAS_CONSTRUCT, keyField: key, recordKeyField: anchorKey, producer: javaConstructs, maxFanoutTotal: 500000,
+        description: "(:CodeProject {key:$project})-[:HAS_CONSTRUCT]->(c:JavaConstruct)" }
+  properties:
+    capture: "What it is: method, if, switch, ternary, loop, try, catch, instanceof, cast, cast.type."
+    nodeType: "The grammar's name for the node (if_statement, enhanced_for_statement, cast_expression)."
+    text: "Its text, whitespace collapsed, at most 200 characters. For cast.type, the type cast to."
+    line: { type: int, description: "Line it starts on." }
+    column: { type: int, description: "Column it starts at." }
+    toLine: { type: int, description: "Line it ends on." }
+    match: "The match it is part of: a cast and its cast.type share one."
+    enclosingId: "The id of the declaration it is in (a method's own `method` row names itself)."
+    enclosing: "The name of the declaration it is in: a method, constructor, field or type."
+    enclosingKind: "That declaration's kind: method, constructor, field, class, …"
+    path: "Source file, relative to the project."
+    language: "java"
+    url: "The line on the repository's host, when it has a file view."
+    project: "The project as read: the folder, or host/repo@commit."
+
+- name: JavaSource
+  parents: [Source]
+  visibility: internal
+  userAnchor: false
+  description: "A Java source file of a project, with its line count, hash and syntax errors. Reach it from (:CodeProject {key})-[:HAS_SOURCE]->; name the parent (Source) to read every language at once."
+  virtualJoins:
+    - { anchorLabel: CodeProject, relationship: HAS_SOURCE, keyField: key, recordKeyField: anchorKey, producer: javaFiles, maxFanoutTotal: 200000,
+        description: "(:CodeProject {key:$project})-[:HAS_SOURCE]->(x:JavaSource)" }
+  properties:
+    path: "File path, relative to the project."
+    language: "java"
+    lines: { type: int, description: "Lines in the file." }
+    parsed: { type: boolean, description: "The file was read and parsed (false: too large, too slow, or unreadable)." }
+    errors: { type: int, description: "Syntax errors its tree holds; the rest of the file still answers." }
+    url: "The file on the repository's host, when it has a file view."
+    project: "The project as read: the folder, or host/repo@commit."
