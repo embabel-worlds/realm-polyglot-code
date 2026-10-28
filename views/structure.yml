@@ -179,13 +179,11 @@
 
 - name: IndexedProjects
   description: >-
-    The projects kept searchable by meaning, and how many of each one's declarations the search index
-    holds now.
+    The projects kept searchable by meaning: each one's declarations are read by the code-declarations
+    documents source every 15 minutes, and only changed code is ingested again.
   cypher: |
     MATCH (ip:IndexedProject)
-    OPTIONAL MATCH (d:Document) WHERE 'code' IN d.tags
-      AND (d.uri STARTS WITH 'code://' + split(replace(replace(ip.key, 'https://', ''), '.git', ''), '@')[0] + '@' OR d.uri STARTS WITH 'code://' + ip.key + '!')
-    RETURN ip.key AS project, ip.label AS label, count(d) AS indexedDeclarations
+    RETURN ip.key AS project, ip.label AS label
     ORDER BY project
 
 - name: PartContents
