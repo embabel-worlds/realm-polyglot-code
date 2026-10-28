@@ -7,9 +7,6 @@
 - name: IndexedProject
   userAnchor: false
   description: "A project whose code is kept searchable by meaning. Create one with its key to index it (create_entry type IndexedProject, data {key}); delete it to stop. The `code-declarations` documents source reads every IndexedProject on its schedule."
-  virtualJoins:
-    - { anchorLabel: IndexedProject, relationship: DECLARES, keyField: key, recordKeyField: anchorKey, producer: allDeclarations, maxFanoutTotal: 200000,
-        description: "(:IndexedProject {key})-[:DECLARES]->(d:CodeDeclaration): every declaration of the project, in every language tree-sitter reads." }
   properties:
     key: { identity: true, description: "The project key: a repository URL (optionally @ref) or a folder." }
     label: "What the user calls it."
@@ -19,6 +16,9 @@
   visibility: internal
   userAnchor: false
   description: "A declaration of an IndexedProject, in any language tree-sitter reads: what the code search source renders into documents. Reach the same rows of any project from (:CodeProject {key})-[:DECLARES]->(:SourceDeclaration)."
+  virtualJoins:
+    - { anchorLabel: IndexedProject, relationship: DECLARES, keyField: key, recordKeyField: anchorKey, producer: allDeclarations, maxFanoutTotal: 200000,
+        description: "(:IndexedProject {key})-[:DECLARES]->(d:CodeDeclaration): every declaration of the project, in every language tree-sitter reads." }
   properties:
     path: "File path, relative to the project."
     language: "The language."
