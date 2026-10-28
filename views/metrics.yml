@@ -1,0 +1,85 @@
+# Java's syntax counted, from the realm's own query (queries/java-metrics.scm) over the source-tree
+# kind: no engine code knows what an `if` or a cast is. Comments are syntax nodes of their own, so
+# commented-out code never counts.
+
+- name: JavaMethodMetrics
+  description: >-
+    Per Java method and constructor: its length in lines and how many ifs, loops (for, enhanced for,
+    while, do), switches, ternaries, try blocks, catch clauses, instanceof tests and casts it holds.
+    A nested `else if` is an if of its own; a lambda's constructs count in the method it is written
+    in; a local or anonymous class's methods are methods of their own. Ordered by branches and casts,
+    most first. `methodId` is the method's declaration id.
+  params:
+    project: { type: string, description: "Project key: a repository URL (optionally @ref) or a folder." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:HAS_CONSTRUCT]->(c:JavaConstruct)
+    WHERE c.enclosingKind IN ['method', 'constructor'] AND c.capture <> 'cast.type'
+    WITH c.enclosingId AS methodId, c.enclosing AS method, c.path AS file,
+         max(CASE WHEN c.capture = 'method' THEN c.line ELSE 0 END) AS line,
+         max(CASE WHEN c.capture = 'method' THEN c.toLine - c.line + 1 ELSE 0 END) AS lines,
+         max(CASE WHEN c.capture = 'method' THEN c.url ELSE '' END) AS url,
+         sum(CASE WHEN c.capture = 'if' THEN 1 ELSE 0 END) AS ifs,
+         sum(CASE WHEN c.capture = 'loop' THEN 1 ELSE 0 END) AS loops,
+         sum(CASE WHEN c.capture = 'switch' THEN 1 ELSE 0 END) AS switches,
+         sum(CASE WHEN c.capture = 'ternary' THEN 1 ELSE 0 END) AS ternaries,
+         sum(CASE WHEN c.capture = 'try' THEN 1 ELSE 0 END) AS tries,
+         sum(CASE WHEN c.capture = 'catch' THEN 1 ELSE 0 END) AS catches,
+         sum(CASE WHEN c.capture = 'instanceof' THEN 1 ELSE 0 END) AS instanceofs,
+         sum(CASE WHEN c.capture = 'cast' THEN 1 ELSE 0 END) AS casts
+    RETURN file, method, line, lines, ifs, loops, switches, ternaries, tries, catches, instanceofs, casts, url, methodId
+    ORDER BY ifs + loops + switches + ternaries + instanceofs + casts DESC, lines DESC, file, line
+    LIMIT 500
+
+- name: JavaConstructDensity
+  description: >-
+    How often each Java construct occurs in a project, per hundred lines of Java: ifs, loops,
+    switches, ternaries, try blocks, catches, instanceof tests and casts, each with its count, its
+    rate per 100 lines, and how many methods hold one. Lines are every line of every Java file,
+    blank and comment lines included. The quick read of how branchy and how cast-heavy a codebase is.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]->(s:JavaSource)
+    WITH sum(s.lines) AS javaLines, count(s) AS javaFiles
+    MATCH (p:CodeProject {key: $project})-[:HAS_CONSTRUCT]->(c:JavaConstruct)
+    WHERE c.capture IN ['if', 'loop', 'switch', 'ternary', 'try', 'catch', 'instanceof', 'cast']
+    WITH javaLines, javaFiles, c.capture AS construct, count(c) AS occurrences, count(DISTINCT c.enclosingId) AS inDeclarations
+    RETURN construct, occurrences, toFloat(round(10000.0 * occurrences / javaLines)) / 100.0 AS per100Lines,
+           inDeclarations, javaLines, javaFiles
+    ORDER BY per100Lines DESC
+
+- name: JavaCastTargets
+  description: >-
+    The types a project's Java code casts to, most cast first: how many casts name each type, its
+    share of all casts, the rate per 100 lines of Java, and a few of the methods that do it. A type
+    is as written (`Map<String, Object>`, `Integer`, `int`), so a generic type and its raw form are
+    two rows. Many casts to one domain type often mean a missing generic or a missing overload.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]->(s:JavaSource)
+    WITH sum(s.lines) AS javaLines
+    MATCH (p:CodeProject {key: $project})-[:HAS_CONSTRUCT]->(c:JavaConstruct {capture: 'cast.type'})
+    WITH javaLines, collect(c) AS casts
+    UNWIND casts AS c
+    WITH javaLines, size(casts) AS allCasts, c.text AS target, count(c) AS castsTo, collect(DISTINCT c.enclosing) AS methods
+    RETURN target, castsTo, toFloat(round(1000.0 * castsTo / allCasts)) / 10.0 AS percentOfCasts,
+           toFloat(round(10000.0 * castsTo / javaLines)) / 100.0 AS per100Lines, allCasts,
+           methods[0..5] AS someMethods
+    ORDER BY castsTo DESC, target
+    LIMIT 100
+
+- name: JavaCasts
+  description: >-
+    Every cast in a project's Java code: the type cast to, what is cast, the method (or field) it is
+    in, and the line. Narrow to one target type with `target` (as written, e.g. `Integer`); empty
+    lists them all.
+  params:
+    project: { type: string, description: "Project key." }
+    target: { type: string, description: "The type cast to, exactly as written; empty for every cast.", default: "" }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:HAS_CONSTRUCT]->(t:JavaConstruct {capture: 'cast.type'})
+    WHERE $target = '' OR t.text = $target
+    RETURN t.text AS target, t.enclosing AS method, t.enclosingKind AS inKind, t.path AS file, t.line AS line, t.url AS url
+    ORDER BY file, line
+    LIMIT 2000

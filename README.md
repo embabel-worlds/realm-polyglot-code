@@ -13,6 +13,15 @@ workspace when a question reaches it. Nothing is ingested.
 - **Views:** `ProjectLanguages`, `Routes` (every HTTP endpoint, in any of a dozen frameworks),
   `WhereDefined`, `WhoCalls`, `SharedNames`, `ExternalDependencies`, `DocCoverage`,
   `LargestFunctions`.
+- **Java metrics:** `JavaMethodMetrics` (per method: lines, ifs, loops, switches, ternaries, try,
+  catch, instanceof, casts), `JavaConstructDensity` (each construct per 100 lines), `JavaCastTargets`
+  (the types cast to, most first) and `JavaCasts` (every cast, with its method and line). They count
+  what `queries/java-metrics.scm` captures, through the `source-tree` kind's `emit: captures`; add a
+  pattern there to count something else. Commented-out code is never counted: a comment is a node
+  of its own. `examples/java-metrics/Metrics.java` is a file whose counts are known by hand — in
+  `branchy`, 3 ifs, 4 loops, 1 switch, 1 try, 1 catch, 2 instanceof and 2 casts (to `Integer` and
+  `Number`); the field `value`, 1 cast to `Object`; `plain`, nothing, though its string and comments
+  hold an `if` and a cast.
 - **Route styles are data:** `reference/route-styles.yml` says how each framework declares a route.
   Add a row to teach it another.
 

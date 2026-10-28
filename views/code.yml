@@ -4,16 +4,13 @@
 
 - name: ProjectLanguages
   description: >-
-    What a project is written in: files, lines and syntax errors per language (Java's files counted
-    by the types they declare). The first question to ask of an unfamiliar repository.
+    What a project is written in: files, lines and syntax errors per language. The first question to
+    ask of an unfamiliar repository.
   params:
     project: { type: string, description: "Project key: a repository URL (optionally @ref) or a folder." }
   cypher: |
     MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]->(s:Source)
     RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines, sum(coalesce(s.errors, 0)) AS syntaxErrors
-    UNION ALL
-    MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]->(t:JavaCodeType)
-    RETURN 'java' AS language, count(DISTINCT t.path) AS files, null AS lines, 0 AS syntaxErrors
 
 - name: Routes
   description: >-
