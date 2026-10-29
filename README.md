@@ -29,12 +29,14 @@ workspace when a question reaches it. Nothing is ingested.
   what the declaration is and its text carries no line numbers, so each 15-minute run embeds only the
   declarations whose text changed: a new commit or code that moves re-embeds nothing else, a deleted
   or renamed declaration is pruned. `realm_sync_documents` runs it at once. `SearchCode` and `SearchAndCallers` find
-  code by what it does and lead back to the live declaration; `Declaration` reads one by id. The Atlas
+  code by what it does; `Declarations` (or `Declaration`) reads the live rows by id. The Atlas
   and Explorer apps' **Ask** finds the code by name, live (`MatchDeclarations`: the question's words against every declaration's
-  name, path and code, so it answers before anything is embedded), and by meaning (`SearchCode`), merged by declaration; then
-  `AnswerFromCode` hands the model the best declarations' code, callers and callees, numbered, and the answer explains how the code
+  name, so it answers before anything is embedded), and by meaning (`SearchCode`), merged by declaration; reads the best with
+  `Declarations`; then `AnswerFromCode` hands the model their code, callers and callees, numbered, and the answer explains how the code
   works, citing each one. `IndexState` says how much of a project is indexed. Every citation is a declaration: click it to focus it in
-  the Atlas (`AskContext`: its code, callers and callees) or on the Explorer's map.
+  the Atlas (`AskContext`: its code, callers and callees) or on the Explorer's map. These views read only the declarations a
+  question reaches (the files the found ones are in, the code that mentions their names, the declarations their code names), so a
+  10,000-declaration project is never read whole to answer one question; asking a new project records it and starts the code index.
 - **Route styles are data:** `reference/route-styles.yml` says how each framework declares a route.
   Add a row to teach it another.
 
