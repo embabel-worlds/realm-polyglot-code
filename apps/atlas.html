@@ -747,9 +747,10 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
     });
   }
   /* [3], [1, 4] and [2:30-41]: each number one of the sources, a line range kept as the link's title. */
-  var CITE = /\[(\d+(?::\s*\d+(?:\s*[-–]\s*\d+)?)?(?:\s*[,;]\s*\d+(?::\s*\d+(?:\s*[-–]\s*\d+)?)?)*)\]/g;
+  /* A model sometimes writes an extra number between the item and its lines ([1:4:44-94]): the item is the first, the lines the last. */
+  var CITE = /\[(\d+(?::\s*\d+){0,2}(?:\s*[-–]\s*\d+)?(?:\s*[,;]\s*\d+(?::\s*\d+){0,2}(?:\s*[-–]\s*\d+)?)*)\]/g;
   function citations(list) {
-    return list.split(/[,;]/).map(function (x) { var m = x.trim().split(':'); return { n: Number(m[0]), lines: m[1] ? m[1].replace(/\s/g, '') : '' }; });
+    return list.split(/[,;]/).map(function (x) { var m = x.trim().split(':'); return { n: Number(m[0]), lines: m.length > 1 ? m[m.length - 1].replace(/\s/g, '') : '' }; });
   }
   function citedNumbers(text) {
     var nums = {};
