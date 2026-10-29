@@ -1,5 +1,8 @@
 # Every language's declarations at once, for the code search source (sources.yml).
 - { name: allDeclarations, kind: source-tree, emit: declarations }
+# Each project as it is now, read without parsing a file: its commit, or a folder's listing digest. What
+# the code search source watches, so a minute with no new commit costs one small read.
+- { name: projectVersions, kind: source-tree, emit: version }
 # The appliance's document index, asked for more than its default, since a search is narrowed to one
 # project after the read (by uri) and only to code inside it (by the `code` tag).
 - { name: codeDocsVector, kind: vector, index: documents, k: 40, minScore: 0.0 }

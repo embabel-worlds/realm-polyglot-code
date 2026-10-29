@@ -112,7 +112,7 @@
   <h3>Asking</h3>
   <p>Ask finds the code two ways at once and merges them by declaration. By name: the question's words, stemmed and split, against
   every declaration's name, read live (MatchDeclarations), so it answers the moment a project is added. By meaning: the code index,
-  which keeps each type, function and method as a document and embeds it on a 15-minute schedule (SearchCode); the panel says how many
+  which keeps each type, function and method as a document and embeds it within a minute or two of each new commit (SearchCode); the panel says how many
   of the project's declarations it holds and whether it is reading now (IndexState and the realm's status). The best are read as the
   project holds them now (Declarations), and the first eight go to the model numbered, each with its code and what calls it and what it
   calls (AnswerFromCode, one synthesize call), and it explains how the code works, citing each declaration it relied on. Calls are
@@ -202,7 +202,7 @@ WITH key, title, score, split(substring(key, at), &#x27;#&#x27;) AS parts
 WITH key, title, score, parts[0] AS file, split(parts[1], &#x27;:&#x27;)[0] AS kind, split(substring(parts[1], size(split(parts[1], &#x27;:&#x27;)[0]) + 1), &#x27;~&#x27;)[0] AS name
 RETURN split(split(substring(title, size(name) + 2), &#x27; &#x27;)[0], &#x27;)&#x27;)[0] AS language, kind, name, file, score, key AS id
 ORDER BY score DESC</pre></details>
-  <details><summary><b>IndexedProjects</b> — The projects kept searchable by meaning: each one&#x27;s declarations are read by the code-declarations documents source every 15 minutes, and only declarations whose text changed are embedded again.</summary><pre class="mono">MATCH (ip:IndexedProject)
+  <details><summary><b>IndexedProjects</b> — The projects kept searchable by meaning: each one&#x27;s declarations are read by the code-declarations documents source within a minute or two of each new commit, and only declarations whose text changed are embedded again.</summary><pre class="mono">MATCH (ip:IndexedProject)
 RETURN ip.key AS project, ip.label AS label
 ORDER BY project</pre></details>
   <details><summary><b>IndexState</b> — How much of a project the code index holds: whether it is an IndexedProject, how many of its declarations are held as searchable documents (`indexed`), and when the last was indexed (epoch ms). Search by meaning sees only what is indexed; MatchDeclarations reads every declaration live. The code-declarations source&#x27;s progress, when a run is under way, is in the realm&#x27;s status.</summary><pre class="mono">OPTIONAL MATCH (ip:IndexedProject {key: $project})
@@ -641,10 +641,6 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
   /* 'yes' when one of the ids is test code (its path holds "test", as the views judge it): only then are test callers and callees read. */
   function anyTest(ids) { return ids.some(function (i) { return /test/i.test(String(i).split('!').slice(1).join('!').split('#')[0]); }) ? 'yes' : 'no'; }
   function unique(list) { return list.filter(function (x, i) { return list.indexOf(x) === i; }); }
-  function nextIndexRun() {
-    var d = new Date(); d.setSeconds(0, 0); d.setMinutes(Math.floor(d.getMinutes() / 15) * 15 + 15);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
   /* A typed gateway call the appliance offers, or null where it does not (an older appliance, a world without the tool). */
   function gatewayCall(ns, method) {
     try { var n = gateway[ns]; return n && method in n ? n[method] : null; } catch (e) { return null; }
@@ -673,7 +669,7 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
       : '';
     var reading = now ? ' ' + now.charAt(0).toUpperCase() + now.slice(1) + '.' : '';
     if (!st.registered) return 'Not indexed yet. Asking indexes it: the answer starts from names read live, and search by meaning joins once the code index has read it.' + reading;
-    if (!held) return 'None of it is searchable by meaning yet: ' + (now || 'the code index reads it on its next run (every 15 minutes; next at ' + nextIndexRun() + ')') + '. Until then answers come from names read live.';
+    if (!held) return 'None of it is searchable by meaning yet: ' + (now || 'the code index reads it within about a minute (it checks every minute for new projects and commits)') + '. Until then answers come from names read live.';
     var last = st.lastIndexedAt ? ' Last indexed ' + new Date(st.lastIndexedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) + '.' : '';
     return held.toLocaleString() + ' declarations searchable by meaning; every one is read live by name.' + last + reading;
   }

@@ -243,7 +243,7 @@
 - name: IndexedProjects
   description: >-
     The projects kept searchable by meaning: each one's declarations are read by the code-declarations
-    documents source every 15 minutes, and only declarations whose text changed are embedded again.
+    documents source within a minute or two of each new commit, and only declarations whose text changed are embedded again.
   cypher: |
     MATCH (ip:IndexedProject)
     RETURN ip.key AS project, ip.label AS label

@@ -353,7 +353,7 @@
       var mine = rows.filter(function (r) { return r.project === state.project; })[0];
       state.indexed = mine;
       $('indexState').innerHTML = !mine
-        ? 'This project is not yet searchable by meaning. <button id="makeSearchable">Make it searchable</button> <span class="note">Its types, functions and methods are kept as documents and re-read every 15 minutes; only changed code is embedded again.</span>'
+        ? 'This project is not yet searchable by meaning. <button id="makeSearchable">Make it searchable</button> <span class="note">Its types, functions and methods are kept as documents and re-read within a minute or two of each new commit; only changed code is embedded again.</span>'
         : '';
       if (mine) indexState(state.project).then(function (st) { $('indexState').textContent = describeIndex(st); }).catch(function () { /* a hint only */ });
     }).catch(function () { $('indexState').textContent = ''; });
@@ -381,7 +381,7 @@
           '<div class="mono note">' + esc(r.signature || '') + '</div><div>' + where(r) + '</div>' +
           '<div class="actions"><button class="link" data-follow="' + i + '">follow it</button></div></div>';
       }).join('') : '<div class="empty">' + (state.indexed
-        ? 'Nothing close to that yet. If the project was added in the last 15 minutes, it may not be read yet; otherwise try other words, or a name with “Where is it defined?”.'
+        ? 'Nothing close to that yet. If the project was added in the last few minutes, it may not be read yet; otherwise try other words, or a name with “Where is it defined?”.'
         : 'This project is not searchable yet — see above.') + '</div>';
       state.hits = rows;
     }).catch(fail);
@@ -496,10 +496,6 @@
   /* 'yes' when one of the ids is test code (its path holds "test", as the views judge it): only then are test callers and callees read. */
   function anyTest(ids) { return ids.some(function (i) { return /test/i.test(String(i).split('!').slice(1).join('!').split('#')[0]); }) ? 'yes' : 'no'; }
   function unique(list) { return list.filter(function (x, i) { return list.indexOf(x) === i; }); }
-  function nextIndexRun() {
-    var d = new Date(); d.setSeconds(0, 0); d.setMinutes(Math.floor(d.getMinutes() / 15) * 15 + 15);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
   /* A typed gateway call the appliance offers, or null where it does not (an older appliance, a world without the tool). */
   function gatewayCall(ns, method) {
     try { var n = gateway[ns]; return n && method in n ? n[method] : null; } catch (e) { return null; }
@@ -528,7 +524,7 @@
       : '';
     var reading = now ? ' ' + now.charAt(0).toUpperCase() + now.slice(1) + '.' : '';
     if (!st.registered) return 'Not indexed yet. Asking indexes it: the answer starts from names read live, and search by meaning joins once the code index has read it.' + reading;
-    if (!held) return 'None of it is searchable by meaning yet: ' + (now || 'the code index reads it on its next run (every 15 minutes; next at ' + nextIndexRun() + ')') + '. Until then answers come from names read live.';
+    if (!held) return 'None of it is searchable by meaning yet: ' + (now || 'the code index reads it within about a minute (it checks every minute for new projects and commits)') + '. Until then answers come from names read live.';
     var last = st.lastIndexedAt ? ' Last indexed ' + new Date(st.lastIndexedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) + '.' : '';
     return held.toLocaleString() + ' declarations searchable by meaning; every one is read live by name.' + last + reading;
   }

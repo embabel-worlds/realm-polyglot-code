@@ -4,6 +4,11 @@
 # pruned after a complete run. No entity pass: a declaration already is a graph entity, so a model call per
 # declaration looking for the people and organizations it mentions would find nothing.
 #
+# Kept current by its watch: once a minute the host reads each IndexedProject's version (its commit, or a
+# folder's listing digest), and only when one has changed since the last complete run does it read the
+# declarations again, so a pushed commit is indexed within a minute or two and an idle minute costs one
+# small read. It also runs when installed and when a project is added (the app asks for the run).
+#
 # A document is named by what the declaration IS, never by where it sits or which commit it was read at:
 #
 #   code://<project>!<path>#<kind>:<owner.name>       the project key without https://
@@ -47,6 +52,9 @@ sources:
       sourceKind: code
       tags: [code]
     sync:
-      trigger: scheduled
-      schedule: "0 */15 * * * *"
+      trigger: on-install
+      watch:
+        cypher: |
+          MATCH (ip:IndexedProject)-[:AT]->(v:ProjectVersion)
+          RETURN ip.key AS project, v.version AS version
       prune: true
