@@ -22,7 +22,8 @@
     in reference data (RouteStyle); a framework missing there is a row to add, not code to write.
     Paths are as each route writes them: a route's full path is the prefix row in the same file (a
     class's @RequestMapping, [Route] or @Controller) joined to its own. A Rails or DRF resource is
-    one row for the REST resource it declares.
+    one row for the REST resource it declares. Only calls named like a route style's call are read,
+    so a project's other calls cost nothing here.
   params:
     project: { type: string, description: "Project key." }
   cypher: |
@@ -39,8 +40,10 @@
            CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END AS handler,
            a AS declaredAs, toLower(d.path) CONTAINS 'test' AS test, d.path AS file, d.fromLine AS line, d.url AS url
     UNION ALL
+    MATCH (style:RouteStyle {shape: 'call'})
+    WITH collect(DISTINCT style.pattern) AS routeCalls
     MATCH (p:CodeProject {key: $project})-[:CALLS]->(c:CallSite)
-    WHERE size(c.arguments) > 0
+    WHERE c.method IN routeCalls AND size(c.arguments) > 0
     MATCH (s:RouteStyle {shape: 'call'})
     WHERE c.method = s.pattern AND c.language IN s.languages AND (size(s.receivers) = 0 OR c.receiver IN s.receivers)
     WITH c, s, c.arguments[0] AS first

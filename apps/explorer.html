@@ -10,7 +10,7 @@
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"code-explorer","requires":{"lenses":[],"views":["ProjectLanguages","PartDependencies","MutualDependencies","PartContents","Hotspots","UnusedTypes","Impact","WhoUses","WhoCalls","WhereDefined","SearchCode","IndexedProjects","Declaration","IndexState","MatchDeclarations","Declarations","AnswerFromCode"],"realms":["realm-polyglot-code"],"namespaces":["repository","realms"]}}
+{"version":1,"name":"code-explorer","requires":{"lenses":[],"views":["ProjectLanguages","PartDependencies","PartContents","Hotspots","UnusedTypes","Impact","WhoUses","WhoCalls","WhereDefined","SearchCode","IndexedProjects","Declaration","IndexState","MatchDeclarations","Declarations","AnswerFromCode"],"realms":["realm-polyglot-code"],"namespaces":["repository","realms"]}}
 </script>
 <style>
   :root{--bg:#0b0d12;--surface:#121620;--surface2:#171c28;--border:#232a38;--text:#e6e9f0;--dim:#8a94a6;
@@ -239,14 +239,27 @@
   /* ---------- the map ---------- */
   function loadMap() {
     if (state.loaded.map) return Promise.resolve();
+    if (state.loaded.mapping) return state.loaded.mapping;
     say('Reading ' + state.project + ' — the first read of a repository takes a few seconds…');
     $('map').innerHTML = '<div class="empty" style="padding:16px">Reading the project…</div>';
-    return Promise.all([view('PartDependencies', { project: state.project }), view('MutualDependencies', { project: state.project })])
-      .then(function (r) {
-        state.edges = r[0]; state.mutual = r[1]; state.loaded.map = true;
+    /* One read of the project: the pairs that use each other are read from its rows, as MutualDependencies
+       reads them, rather than by a second read of every declaration and reference. */
+    return state.loaded.mapping = view('PartDependencies', { project: state.project })
+      .then(function (edges) {
+        state.edges = edges; state.mutual = mutualOf(edges); state.loaded.map = true;
         drawMap();
         say(state.edges.length ? '' : 'No part of this project uses another\'s types — it may be one directory, or in a language read for routes only.');
       }).catch(fail);
+  }
+  /* Pairs of parts that use each other's types, each once, busiest first: MutualDependencies over the map's rows. */
+  function mutualOf(edges) {
+    var by = {}; edges.forEach(function (e) { by[e.from + '\u0000' + e.to] = e; });
+    return edges.filter(function (e) { return e.from < e.to && by[e.to + '\u0000' + e.from]; })
+      .map(function (e) {
+        var back = by[e.to + '\u0000' + e.from];
+        return { a: e.from, b: e.to, aUsesB: e.uses, exampleAtoB: (e.examples || [])[0], bUsesA: back.uses, exampleBtoA: (back.examples || [])[0] };
+      })
+      .sort(function (x, y) { return (y.aUsesB + y.bUsesA) - (x.aUsesB + x.bUsesA); });
   }
   function isMutual(a, b) {
     return state.mutual.some(function (m) { return (m.a === a && m.b === b) || (m.a === b && m.b === a); });
@@ -416,16 +429,17 @@
     if (state.loaded.review) return;
     state.loaded.review = true;
     ['hotspots', 'mutual', 'unused'].forEach(function (id) { $(id).innerHTML = '<div class="empty">Reading…</div>'; });
-    view('Hotspots', { project: state.project, limit: 15 }).then(function (rows) {
+    /* One whole-project read at a time: the cycles come from the map, the hotspots and then the unused types are read in turn. */
+    loadMap().then(function () {
+      $('mutual').innerHTML = table(state.mutual || [], [['Parts', function (r) { return '<span class="mono">' + esc(r.a) + '</span> ⇄ <span class="mono">' + esc(r.b) + '</span>'; }],
+        ['Each way', function (r) { return r.aUsesB + ' (' + esc(r.exampleAtoB) + ') / ' + r.bUsesA + ' (' + esc(r.exampleBtoA) + ')'; }]]);
+      return view('Hotspots', { project: state.project, limit: 15 });
+    }).then(function (rows) {
       $('hotspots').innerHTML = table(rows, [['Type', function (r) { return lang(r.language) + ' ' + esc(r.type) + (r.sameName > 1 ? ' <span class="note" title="other types share this name">×' + r.sameName + '</span>' : ''); }],
         ['Files', function (r) { return r.files + ' <span class="note">in ' + r.directories + ' part(s)</span>'; }], ['Declared', where],
         ['', function (r) { return '<button class="link" data-impact="' + esc(r.type) + '">impact</button>'; }]]);
-    }).catch(fail);
-    view('MutualDependencies', { project: state.project }).then(function (rows) {
-      $('mutual').innerHTML = table(rows, [['Parts', function (r) { return '<span class="mono">' + esc(r.a) + '</span> ⇄ <span class="mono">' + esc(r.b) + '</span>'; }],
-        ['Each way', function (r) { return r.aUsesB + ' (' + esc(r.exampleAtoB) + ') / ' + r.bUsesA + ' (' + esc(r.exampleBtoA) + ')'; }]]);
-    }).catch(fail);
-    view('UnusedTypes', { project: state.project }).then(function (rows) {
+      return view('UnusedTypes', { project: state.project });
+    }).then(function (rows) {
       $('unused').innerHTML = table(rows.slice(0, 100), [['Type', function (r) { return lang(r.language) + ' ' + esc(r.type) + ' <span class="note">' + esc(r.kind) + '</span>'; }], ['Where', where]]) +
         (rows.length > 100 ? '<div class="note">and ' + (rows.length - 100) + ' more</div>' : '');
     }).catch(fail);

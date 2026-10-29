@@ -29,7 +29,9 @@
     The shape of a project: which directories use types declared in which others, with how many
     uses, how many distinct types, and a few of them. Only a name declared in exactly one directory
     is counted, so two types sharing a name never join two parts that do not touch. The first answer
-    to "what does this repository look like?".
+    to "what does this repository look like?". Every pair of parts is a row (up to 5,000), so the
+    pairs that use each other (MutualDependencies) can be read from these rows without a second read
+    of the project.
   params:
     project: { type: string, description: "Project key." }
   cypher: |
@@ -43,7 +45,7 @@
          CASE WHEN r.path CONTAINS '/' THEN substring(r.path, 0, size(r.path) - size(split(r.path, '/')[-1]) - 1) ELSE '.' END AS from
     WHERE from <> to
     RETURN from, to, count(*) AS uses, count(DISTINCT type) AS types, collect(DISTINCT type)[0..5] AS examples
-    ORDER BY uses DESC LIMIT 300
+    ORDER BY uses DESC LIMIT 5000
 
 - name: MutualDependencies
   description: >-
