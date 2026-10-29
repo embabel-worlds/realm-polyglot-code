@@ -102,12 +102,14 @@
     ids: { type: string, description: "Declaration ids (as SearchCode, MatchDeclarations or a citation give them), '|' between them." }
     names: { type: string, default: "", description: "The ids' own names ('|' between them: jwtDecoder|SecurityConfiguration), to read only the code that mentions them for callers. Empty reads every declaration: right, but slow on a large project." }
     calls: { type: string, default: "", description: "The identifiers their code holds ('|' between them; Declarations gives the code), to read only declarations of those names for callees. Empty reads every declaration." }
+    tests: { type: string, default: "yes", description: "'no' when none of the ids is test code: callers and callees are then read from outside test code only, as they are counted. 'yes' reads test code too." }
   cypher: |
     MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
     WHERE any(i IN split($ids, '|') WHERE i CONTAINS ('!' + d.path + '#'))
+      AND ($names = '' OR d.name IN split($names, '|') OR d.owner IN split($names, '|'))
     WITH collect(d) AS inFiles
     OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(c:CodeDeclaration)
-    WHERE c.kind IN ['function', 'method', 'constructor'] AND c.text IS NOT NULL
+    WHERE c.kind IN ['function', 'method', 'constructor'] AND c.text IS NOT NULL AND ($tests = 'yes' OR NOT toLower(c.path) CONTAINS 'test')
       AND any(n IN CASE WHEN $names = '' THEN [''] ELSE split($names, '|') END
               WHERE c.text CONTAINS (' ' + n + ' ') OR c.text CONTAINS (' ' + n + '(') OR c.text CONTAINS (' ' + n + '<') OR c.text CONTAINS (' ' + n + '.')
                  OR c.text CONTAINS (' ' + n + ')') OR c.text CONTAINS ('(' + n + ' ') OR c.text CONTAINS ('(' + n + '.') OR c.text CONTAINS ('<' + n + '>')
@@ -117,7 +119,8 @@
     WITH inFiles, collect(c) AS naming
     OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(e:CodeDeclaration)
     WHERE $calls = '' OR (e.name IN split($calls, '|')
-      AND e.kind IN ['function', 'method', 'constructor', 'class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type'])
+      AND e.kind IN ['function', 'method', 'constructor', 'class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type']
+      AND ($tests = 'yes' OR NOT toLower(e.path) CONTAINS 'test'))
     WITH inFiles, naming, collect(e) AS called
     UNWIND inFiles + naming + called AS d
     WITH DISTINCT d
@@ -166,7 +169,9 @@
     with its signature, annotations, doc, code (more for the first three) and the names of what calls it
     and what it calls (matched by name), and `synthesize` traces through them to explain how the code
     does what is asked, citing each declaration it relies on by its number ([2], or [2:30-41] for lines).
-    One model call. It answers only from the code given: what the declarations do not show, it says is
+    One model call: the eight items together stay under the 12,000 characters one `synthesize` call
+    takes (about 2,300 each for [1] and [2], 1,500 for [3], 700 for the rest, code cut first: 11,200 at most), because
+    past that it folds in batches — two calls and a third to join them, three times as long. It answers only from the code given: what the declarations do not show, it says is
     not shown. Find the ids with MatchDeclarations and SearchCode, and their code with Declarations;
     pass `names` and `calls` to read only what the answer needs (as AskContext does).
   params:
@@ -175,12 +180,14 @@
     ids: { type: string, description: "Declaration ids, best first, '|' between them (at most about 10)." }
     names: { type: string, default: "", description: "The ids' own names ('|' between them: jwtDecoder|SecurityConfiguration), to read only the code that mentions them for callers. Empty reads every declaration: right, but slow on a large project." }
     calls: { type: string, default: "", description: "The identifiers their code holds ('|' between them; Declarations gives the code), to read only declarations of those names for callees. Empty reads every declaration." }
+    tests: { type: string, default: "yes", description: "'no' when none of the ids is test code: callers and callees are then read from outside test code only, as they are counted. 'yes' reads test code too." }
   cypher: |
     MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
     WHERE any(i IN split($ids, '|') WHERE i CONTAINS ('!' + d.path + '#'))
+      AND ($names = '' OR d.name IN split($names, '|') OR d.owner IN split($names, '|'))
     WITH collect(d) AS inFiles
     OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(c:CodeDeclaration)
-    WHERE c.kind IN ['function', 'method', 'constructor'] AND c.text IS NOT NULL
+    WHERE c.kind IN ['function', 'method', 'constructor'] AND c.text IS NOT NULL AND ($tests = 'yes' OR NOT toLower(c.path) CONTAINS 'test')
       AND any(n IN CASE WHEN $names = '' THEN [''] ELSE split($names, '|') END
               WHERE c.text CONTAINS (' ' + n + ' ') OR c.text CONTAINS (' ' + n + '(') OR c.text CONTAINS (' ' + n + '<') OR c.text CONTAINS (' ' + n + '.')
                  OR c.text CONTAINS (' ' + n + ')') OR c.text CONTAINS ('(' + n + ' ') OR c.text CONTAINS ('(' + n + '.') OR c.text CONTAINS ('<' + n + '>')
@@ -190,7 +197,8 @@
     WITH inFiles, collect(c) AS naming
     OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(e:CodeDeclaration)
     WHERE $calls = '' OR (e.name IN split($calls, '|')
-      AND e.kind IN ['function', 'method', 'constructor', 'class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type'])
+      AND e.kind IN ['function', 'method', 'constructor', 'class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type']
+      AND ($tests = 'yes' OR NOT toLower(e.path) CONTAINS 'test'))
     WITH inFiles, naming, collect(e) AS called
     UNWIND inFiles + naming + called AS d
     WITH DISTINCT d
@@ -223,13 +231,17 @@
             AND any(u IN CASE WHEN x.code THEN ['.' + x.d.name + '(', ' ' + x.d.name + '(', '(' + x.d.name + '(', '!' + x.d.name + '(', '::' + x.d.name]
                               ELSE [' ' + x.d.name + ' ', ' ' + x.d.name + '(', ' ' + x.d.name + '<', ' ' + x.d.name + '.', '(' + x.d.name + ' ', '(' + x.d.name + '.', '<' + x.d.name + '>', ' ' + x.d.name + '::', ': ' + x.d.name] END
                    WHERE body CONTAINS u)] AS callees
-    WITH num, '[' + toString(num) + '] ' + d.language + ' ' + d.kind + ' ' + CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END
+    WITH num, body,
+         '[' + toString(num) + '] ' + d.language + ' ' + d.kind + ' ' + CASE WHEN d.owner = '' THEN d.name ELSE d.owner + '.' + d.name END
            + ', in ' + d.path + ' lines ' + toString(d.fromLine) + '-' + toString(d.toLine) + '\n'
            + reduce(a = '', t IN coalesce(d.annotationText, []) | a + t + '\n') + coalesce(d.signature, '') + '\n'
-           + CASE WHEN coalesce(d.javadoc, '') = '' THEN '' ELSE d.javadoc + '\n' END
-           + CASE WHEN size(body) > budget THEN substring(body, 0, budget) + '\n…' ELSE body END
-           + '\nCalled or used by (matched by name): ' + CASE WHEN size(callers) = 0 THEN 'nothing in this project' ELSE reduce(a = '', c IN callers[0..6] | a + CASE WHEN c.d.owner = '' THEN c.d.name ELSE c.d.owner + '.' + c.d.name END + '; ') + CASE WHEN size(callers) > 6 THEN 'and ' + toString(size(callers) - 6) + ' more' ELSE '' END END
-           + '\nCalls or uses (matched by name): ' + CASE WHEN size(callees) = 0 THEN 'nothing declared in this project' ELSE reduce(a = '', c IN callees[0..10] | a + CASE WHEN c.d.owner = '' THEN c.d.name ELSE c.d.owner + '.' + c.d.name END + '; ') END AS item
+           + CASE WHEN coalesce(d.javadoc, '') = '' THEN '' WHEN size(d.javadoc) > 300 THEN substring(d.javadoc, 0, 300) + '…\n' ELSE d.javadoc + '\n' END AS head,
+         '\nCalled or used by (matched by name): ' + CASE WHEN size(callers) = 0 THEN 'nothing in this project' ELSE reduce(a = '', c IN callers[0..6] | a + CASE WHEN c.d.owner = '' THEN c.d.name ELSE c.d.owner + '.' + c.d.name END + '; ') + CASE WHEN size(callers) > 6 THEN 'and ' + toString(size(callers) - 6) + ' more' ELSE '' END END
+           + '\nCalls or uses (matched by name): ' + CASE WHEN size(callees) = 0 THEN 'nothing declared in this project' ELSE reduce(a = '', c IN callees[0..10] | a + CASE WHEN c.d.owner = '' THEN c.d.name ELSE c.d.owner + '.' + c.d.name END + '; ') END AS tail,
+         CASE WHEN num <= 2 THEN 2300 WHEN num = 3 THEN 1500 ELSE 700 END AS cap
+    WITH num, head, tail, cap, CASE WHEN cap - size(head) - size(tail) < 200 THEN 200 ELSE cap - size(head) - size(tail) END AS room, body
+    WITH num, cap, head + CASE WHEN size(body) > room THEN substring(body, 0, room) + '\n…' ELSE body END + tail AS whole
+    WITH num, CASE WHEN size(whole) > cap + 200 THEN substring(whole, 0, cap + 200) + '…' ELSE whole END AS item
     ORDER BY num
     RETURN synthesize(item, 'Answer this question about the code of ' + $project + ': ' + $question
            + ' Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its item number in square brackets, like [2], or with its lines after a colon, like [2:30-41]; never put a bare line number in square brackets. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess. Be direct: lead with the answer, then the trace, in at most about 250 words.') AS answer,

@@ -238,6 +238,7 @@ RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; 
 ORDER BY score DESC, line LIMIT 25</pre></details>
   <details><summary><b>Declarations</b> — Declarations of an indexed project by key (&#x27;|&#x27; between them), in the order given, as the project reads now: language, kind, name, signature, doc, file, line and url, and `code` — a function&#x27;s lines, numbered, or a type&#x27;s members, up to about 6,000 characters (what AnswerFromCode reads of the first three). Reads only the files the keys name, so it answers in about a second however large the project. No row for a key the project no longer declares. What SearchCode&#x27;s hits and an answer&#x27;s citations lead to.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
 WHERE any(i IN split($ids, &#x27;|&#x27;) WHERE i CONTAINS (&#x27;!&#x27; + d.path + &#x27;#&#x27;))
+  AND ($names = &#x27;&#x27; OR d.name IN split($names, &#x27;|&#x27;) OR d.owner IN split($names, &#x27;|&#x27;))
 WITH d ORDER BY d.fromLine, d.id
 WITH d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
 UNWIND range(0, size(same) - 1) AS i
@@ -257,9 +258,10 @@ RETURN id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x
 ORDER BY at</pre></details>
   <details><summary><b>AskContext</b> — Declarations of an indexed project by id (&#x27;|&#x27; between ids), each with what an explanation needs: its signature, annotations and doc; its code (a function&#x27;s lines, numbered; a type&#x27;s members, up to about 4,000 characters); the functions and methods elsewhere that call it or use the type (`callers`, at most 8 listed of `callerCount`), and the declarations of the same language its code calls or uses (`callees`). Calls are matched by NAME in the code&#x27;s text, so a common name is over-counted. Test code is left out of callers and callees unless the declaration is itself a test. Pass `names` and `calls` and it reads only the files the ids are in, the code that mentions their names and the declarations their code names: a second or later declaration of one name in a file that a caller shares with one that does not mention the name may then carry the first&#x27;s id.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
 WHERE any(i IN split($ids, &#x27;|&#x27;) WHERE i CONTAINS (&#x27;!&#x27; + d.path + &#x27;#&#x27;))
+  AND ($names = &#x27;&#x27; OR d.name IN split($names, &#x27;|&#x27;) OR d.owner IN split($names, &#x27;|&#x27;))
 WITH collect(d) AS inFiles
 OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(c:CodeDeclaration)
-WHERE c.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;] AND c.text IS NOT NULL
+WHERE c.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;] AND c.text IS NOT NULL AND ($tests = &#x27;yes&#x27; OR NOT toLower(c.path) CONTAINS &#x27;test&#x27;)
   AND any(n IN CASE WHEN $names = &#x27;&#x27; THEN [&#x27;&#x27;] ELSE split($names, &#x27;|&#x27;) END
           WHERE c.text CONTAINS (&#x27; &#x27; + n + &#x27; &#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;(&#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;&lt;&#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;.&#x27;)
              OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;)&#x27;) OR c.text CONTAINS (&#x27;(&#x27; + n + &#x27; &#x27;) OR c.text CONTAINS (&#x27;(&#x27; + n + &#x27;.&#x27;) OR c.text CONTAINS (&#x27;&lt;&#x27; + n + &#x27;&gt;&#x27;)
@@ -269,7 +271,8 @@ WHERE c.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x2
 WITH inFiles, collect(c) AS naming
 OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(e:CodeDeclaration)
 WHERE $calls = &#x27;&#x27; OR (e.name IN split($calls, &#x27;|&#x27;)
-  AND e.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;, &#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;])
+  AND e.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;, &#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;]
+  AND ($tests = &#x27;yes&#x27; OR NOT toLower(e.path) CONTAINS &#x27;test&#x27;))
 WITH inFiles, naming, collect(e) AS called
 UNWIND inFiles + naming + called AS d
 WITH DISTINCT d
@@ -310,11 +313,12 @@ RETURN id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x
        size(callees) AS calleeCount,
        [c IN callees[0..12] | {id: c.key, name: CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END, kind: c.d.kind, file: c.d.path, line: c.d.fromLine, url: c.d.url}] AS callees,
        &#x27;name&#x27; AS resolution</pre></details>
-  <details><summary><b>AnswerFromCode</b> — An answer to a question about an indexed project, written from its code: the declarations given (ids, &#x27;|&#x27; between them, best first) are numbered [1], [2], … in that order, each handed to the model with its signature, annotations, doc, code (more for the first three) and the names of what calls it and what it calls (matched by name), and `synthesize` traces through them to explain how the code does what is asked, citing each declaration it relies on by its number ([2], or [2:30-41] for lines). One model call. It answers only from the code given: what the declarations do not show, it says is not shown. Find the ids with MatchDeclarations and SearchCode, and their code with Declarations; pass `names` and `calls` to read only what the answer needs (as AskContext does).</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+  <details><summary><b>AnswerFromCode</b> — An answer to a question about an indexed project, written from its code: the declarations given (ids, &#x27;|&#x27; between them, best first) are numbered [1], [2], … in that order, each handed to the model with its signature, annotations, doc, code (more for the first three) and the names of what calls it and what it calls (matched by name), and `synthesize` traces through them to explain how the code does what is asked, citing each declaration it relies on by its number ([2], or [2:30-41] for lines). One model call: the eight items together stay under the 12,000 characters one `synthesize` call takes (about 2,300 each for [1] and [2], 1,500 for [3], 700 for the rest, code cut first: 11,200 at most), because past that it folds in batches — two calls and a third to join them, three times as long. It answers only from the code given: what the declarations do not show, it says is not shown. Find the ids with MatchDeclarations and SearchCode, and their code with Declarations; pass `names` and `calls` to read only what the answer needs (as AskContext does).</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
 WHERE any(i IN split($ids, &#x27;|&#x27;) WHERE i CONTAINS (&#x27;!&#x27; + d.path + &#x27;#&#x27;))
+  AND ($names = &#x27;&#x27; OR d.name IN split($names, &#x27;|&#x27;) OR d.owner IN split($names, &#x27;|&#x27;))
 WITH collect(d) AS inFiles
 OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(c:CodeDeclaration)
-WHERE c.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;] AND c.text IS NOT NULL
+WHERE c.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;] AND c.text IS NOT NULL AND ($tests = &#x27;yes&#x27; OR NOT toLower(c.path) CONTAINS &#x27;test&#x27;)
   AND any(n IN CASE WHEN $names = &#x27;&#x27; THEN [&#x27;&#x27;] ELSE split($names, &#x27;|&#x27;) END
           WHERE c.text CONTAINS (&#x27; &#x27; + n + &#x27; &#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;(&#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;&lt;&#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;.&#x27;)
              OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;)&#x27;) OR c.text CONTAINS (&#x27;(&#x27; + n + &#x27; &#x27;) OR c.text CONTAINS (&#x27;(&#x27; + n + &#x27;.&#x27;) OR c.text CONTAINS (&#x27;&lt;&#x27; + n + &#x27;&gt;&#x27;)
@@ -324,7 +328,8 @@ WHERE c.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x2
 WITH inFiles, collect(c) AS naming
 OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(e:CodeDeclaration)
 WHERE $calls = &#x27;&#x27; OR (e.name IN split($calls, &#x27;|&#x27;)
-  AND e.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;, &#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;])
+  AND e.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;, &#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;]
+  AND ($tests = &#x27;yes&#x27; OR NOT toLower(e.path) CONTAINS &#x27;test&#x27;))
 WITH inFiles, naming, collect(e) AS called
 UNWIND inFiles + naming + called AS d
 WITH DISTINCT d
@@ -357,13 +362,17 @@ WITH d, num, callers, budget, body,
         AND any(u IN CASE WHEN x.code THEN [&#x27;.&#x27; + x.d.name + &#x27;(&#x27;, &#x27; &#x27; + x.d.name + &#x27;(&#x27;, &#x27;(&#x27; + x.d.name + &#x27;(&#x27;, &#x27;!&#x27; + x.d.name + &#x27;(&#x27;, &#x27;::&#x27; + x.d.name]
                           ELSE [&#x27; &#x27; + x.d.name + &#x27; &#x27;, &#x27; &#x27; + x.d.name + &#x27;(&#x27;, &#x27; &#x27; + x.d.name + &#x27;&lt;&#x27;, &#x27; &#x27; + x.d.name + &#x27;.&#x27;, &#x27;(&#x27; + x.d.name + &#x27; &#x27;, &#x27;(&#x27; + x.d.name + &#x27;.&#x27;, &#x27;&lt;&#x27; + x.d.name + &#x27;&gt;&#x27;, &#x27; &#x27; + x.d.name + &#x27;::&#x27;, &#x27;: &#x27; + x.d.name] END
                WHERE body CONTAINS u)] AS callees
-WITH num, &#x27;[&#x27; + toString(num) + &#x27;] &#x27; + d.language + &#x27; &#x27; + d.kind + &#x27; &#x27; + CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END
+WITH num, body,
+     &#x27;[&#x27; + toString(num) + &#x27;] &#x27; + d.language + &#x27; &#x27; + d.kind + &#x27; &#x27; + CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END
        + &#x27;, in &#x27; + d.path + &#x27; lines &#x27; + toString(d.fromLine) + &#x27;-&#x27; + toString(d.toLine) + &#x27;\n&#x27;
        + reduce(a = &#x27;&#x27;, t IN coalesce(d.annotationText, []) | a + t + &#x27;\n&#x27;) + coalesce(d.signature, &#x27;&#x27;) + &#x27;\n&#x27;
-       + CASE WHEN coalesce(d.javadoc, &#x27;&#x27;) = &#x27;&#x27; THEN &#x27;&#x27; ELSE d.javadoc + &#x27;\n&#x27; END
-       + CASE WHEN size(body) &gt; budget THEN substring(body, 0, budget) + &#x27;\n…&#x27; ELSE body END
-       + &#x27;\nCalled or used by (matched by name): &#x27; + CASE WHEN size(callers) = 0 THEN &#x27;nothing in this project&#x27; ELSE reduce(a = &#x27;&#x27;, c IN callers[0..6] | a + CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END + &#x27;; &#x27;) + CASE WHEN size(callers) &gt; 6 THEN &#x27;and &#x27; + toString(size(callers) - 6) + &#x27; more&#x27; ELSE &#x27;&#x27; END END
-       + &#x27;\nCalls or uses (matched by name): &#x27; + CASE WHEN size(callees) = 0 THEN &#x27;nothing declared in this project&#x27; ELSE reduce(a = &#x27;&#x27;, c IN callees[0..10] | a + CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END + &#x27;; &#x27;) END AS item
+       + CASE WHEN coalesce(d.javadoc, &#x27;&#x27;) = &#x27;&#x27; THEN &#x27;&#x27; WHEN size(d.javadoc) &gt; 300 THEN substring(d.javadoc, 0, 300) + &#x27;…\n&#x27; ELSE d.javadoc + &#x27;\n&#x27; END AS head,
+     &#x27;\nCalled or used by (matched by name): &#x27; + CASE WHEN size(callers) = 0 THEN &#x27;nothing in this project&#x27; ELSE reduce(a = &#x27;&#x27;, c IN callers[0..6] | a + CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END + &#x27;; &#x27;) + CASE WHEN size(callers) &gt; 6 THEN &#x27;and &#x27; + toString(size(callers) - 6) + &#x27; more&#x27; ELSE &#x27;&#x27; END END
+       + &#x27;\nCalls or uses (matched by name): &#x27; + CASE WHEN size(callees) = 0 THEN &#x27;nothing declared in this project&#x27; ELSE reduce(a = &#x27;&#x27;, c IN callees[0..10] | a + CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END + &#x27;; &#x27;) END AS tail,
+     CASE WHEN num &lt;= 2 THEN 2300 WHEN num = 3 THEN 1500 ELSE 700 END AS cap
+WITH num, head, tail, cap, CASE WHEN cap - size(head) - size(tail) &lt; 200 THEN 200 ELSE cap - size(head) - size(tail) END AS room, body
+WITH num, cap, head + CASE WHEN size(body) &gt; room THEN substring(body, 0, room) + &#x27;\n…&#x27; ELSE body END + tail AS whole
+WITH num, CASE WHEN size(whole) &gt; cap + 200 THEN substring(whole, 0, cap + 200) + &#x27;…&#x27; ELSE whole END AS item
 ORDER BY num
 RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $project + &#x27;: &#x27; + $question
        + &#x27; Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its item number in square brackets, like [2], or with its lines after a colon, like [2:30-41]; never put a bare line number in square brackets. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess. Be direct: lead with the answer, then the trace, in at most about 250 words.&#x27;) AS answer,
@@ -629,6 +638,8 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
     });
     return out;
   }
+  /* 'yes' when one of the ids is test code (its path holds "test", as the views judge it): only then are test callers and callees read. */
+  function anyTest(ids) { return ids.some(function (i) { return /test/i.test(String(i).split('!').slice(1).join('!').split('#')[0]); }) ? 'yes' : 'no'; }
   function unique(list) { return list.filter(function (x, i) { return list.indexOf(x) === i; }); }
   function nextIndexRun() {
     var d = new Date(); d.setSeconds(0, 0); d.setMinutes(Math.floor(d.getMinutes() / 15) * 15 + 15);
@@ -719,7 +730,8 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
   /* Hits with their live rows (Declarations), in the same order; each one's code kept for the answer and the focus. */
   function readDeclarations(project, hits) {
     if (!hits.length) return Promise.resolve([]);
-    return view('Declarations', { project: project, ids: hits.map(function (h) { return h.id; }).join('|') }).then(function (rows) {
+    var ids = hits.map(function (h) { return h.id; });
+    return view('Declarations', { project: project, ids: ids.join('|'), names: unique(ids.map(simpleName)).join('|') }).then(function (rows) {
       var live = {};
       rows.forEach(function (r) { live[r.id] = r; CODE[r.id] = r.code || ''; });
       return hits.filter(function (h) { return live[h.id]; }).map(function (h) { return Object.assign(h, live[h.id]); });
@@ -730,7 +742,7 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
     var top = hits.slice(0, ANSWER_FROM), ids = top.map(function (h) { return h.id; });
     return view('AnswerFromCode', {
       project: project, question: question, ids: ids.join('|'),
-      names: unique(ids.map(simpleName)).join('|'), calls: codeWords(ids.map(function (i) { return CODE[i]; })).join('|')
+      names: unique(ids.map(simpleName)).join('|'), calls: codeWords(ids.map(function (i) { return CODE[i]; })).join('|'), tests: anyTest(ids)
     }).then(function (rows) {
       var answer = rows[0] && rows[0].answer;
       if (!answer || /^UNAVAILABLE:/.test(answer)) throw new Error(answer || 'The model gave no answer.');
@@ -743,7 +755,7 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
     var read = CODE[id] != null ? Promise.resolve() : readDeclarations(project, [{ id: id }]);
     return read.then(function () {
       if (CODE[id] == null) return [];
-      return view('AskContext', { project: project, ids: id, names: simpleName(id), calls: codeWords([CODE[id]]).join('|') });
+      return view('AskContext', { project: project, ids: id, names: simpleName(id), calls: codeWords([CODE[id]]).join('|'), tests: anyTest([id]) });
     });
   }
   /* [3], [1, 4] and [2:30-41]: each number one of the sources, a line range kept as the link's title. */

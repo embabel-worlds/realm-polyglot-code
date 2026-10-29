@@ -493,6 +493,8 @@
     });
     return out;
   }
+  /* 'yes' when one of the ids is test code (its path holds "test", as the views judge it): only then are test callers and callees read. */
+  function anyTest(ids) { return ids.some(function (i) { return /test/i.test(String(i).split('!').slice(1).join('!').split('#')[0]); }) ? 'yes' : 'no'; }
   function unique(list) { return list.filter(function (x, i) { return list.indexOf(x) === i; }); }
   function nextIndexRun() {
     var d = new Date(); d.setSeconds(0, 0); d.setMinutes(Math.floor(d.getMinutes() / 15) * 15 + 15);
@@ -583,7 +585,8 @@
   /* Hits with their live rows (Declarations), in the same order; each one's code kept for the answer and the focus. */
   function readDeclarations(project, hits) {
     if (!hits.length) return Promise.resolve([]);
-    return view('Declarations', { project: project, ids: hits.map(function (h) { return h.id; }).join('|') }).then(function (rows) {
+    var ids = hits.map(function (h) { return h.id; });
+    return view('Declarations', { project: project, ids: ids.join('|'), names: unique(ids.map(simpleName)).join('|') }).then(function (rows) {
       var live = {};
       rows.forEach(function (r) { live[r.id] = r; CODE[r.id] = r.code || ''; });
       return hits.filter(function (h) { return live[h.id]; }).map(function (h) { return Object.assign(h, live[h.id]); });
@@ -594,7 +597,7 @@
     var top = hits.slice(0, ANSWER_FROM), ids = top.map(function (h) { return h.id; });
     return view('AnswerFromCode', {
       project: project, question: question, ids: ids.join('|'),
-      names: unique(ids.map(simpleName)).join('|'), calls: codeWords(ids.map(function (i) { return CODE[i]; })).join('|')
+      names: unique(ids.map(simpleName)).join('|'), calls: codeWords(ids.map(function (i) { return CODE[i]; })).join('|'), tests: anyTest(ids)
     }).then(function (rows) {
       var answer = rows[0] && rows[0].answer;
       if (!answer || /^UNAVAILABLE:/.test(answer)) throw new Error(answer || 'The model gave no answer.');
@@ -607,7 +610,7 @@
     var read = CODE[id] != null ? Promise.resolve() : readDeclarations(project, [{ id: id }]);
     return read.then(function () {
       if (CODE[id] == null) return [];
-      return view('AskContext', { project: project, ids: id, names: simpleName(id), calls: codeWords([CODE[id]]).join('|') });
+      return view('AskContext', { project: project, ids: id, names: simpleName(id), calls: codeWords([CODE[id]]).join('|'), tests: anyTest([id]) });
     });
   }
   /* [3], [1, 4] and [2:30-41]: each number one of the sources, a line range kept as the link's title. */
