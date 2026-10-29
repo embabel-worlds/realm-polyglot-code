@@ -217,9 +217,11 @@
   params:
     project: { type: string, description: "Project key." }
     ids: { type: string, description: "Declaration keys, '|' between them, as SearchCode, MatchDeclarations or a citation give them." }
+    names: { type: string, default: "", description: "The keys' own names ('|' between them: jwtDecoder|SecurityConfiguration), to read only those declarations and their members in the files named, not the whole files." }
   cypher: |
     MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
     WHERE any(i IN split($ids, '|') WHERE i CONTAINS ('!' + d.path + '#'))
+      AND ($names = '' OR d.name IN split($names, '|') OR d.owner IN split($names, '|'))
     WITH d ORDER BY d.fromLine, d.id
     WITH d.path AS path, d.kind AS kind, coalesce(d.owner, '') AS owner, d.name AS name, collect(d) AS same
     UNWIND range(0, size(same) - 1) AS i

@@ -238,6 +238,7 @@ RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; 
 ORDER BY score DESC, line LIMIT 25</pre></details>
   <details><summary><b>Declarations</b> — Declarations of an indexed project by key (&#x27;|&#x27; between them), in the order given, as the project reads now: language, kind, name, signature, doc, file, line and url, and `code` — a function&#x27;s lines, numbered, or a type&#x27;s members, up to about 6,000 characters (what AnswerFromCode reads of the first three). Reads only the files the keys name, so it answers in about a second however large the project. No row for a key the project no longer declares. What SearchCode&#x27;s hits and an answer&#x27;s citations lead to.</summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
 WHERE any(i IN split($ids, &#x27;|&#x27;) WHERE i CONTAINS (&#x27;!&#x27; + d.path + &#x27;#&#x27;))
+  AND ($names = &#x27;&#x27; OR d.name IN split($names, &#x27;|&#x27;) OR d.owner IN split($names, &#x27;|&#x27;))
 WITH d ORDER BY d.fromLine, d.id
 WITH d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
 UNWIND range(0, size(same) - 1) AS i
@@ -729,7 +730,8 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
   /* Hits with their live rows (Declarations), in the same order; each one's code kept for the answer and the focus. */
   function readDeclarations(project, hits) {
     if (!hits.length) return Promise.resolve([]);
-    return view('Declarations', { project: project, ids: hits.map(function (h) { return h.id; }).join('|') }).then(function (rows) {
+    var ids = hits.map(function (h) { return h.id; });
+    return view('Declarations', { project: project, ids: ids.join('|'), names: unique(ids.map(simpleName)).join('|') }).then(function (rows) {
       var live = {};
       rows.forEach(function (r) { live[r.id] = r; CODE[r.id] = r.code || ''; });
       return hits.filter(function (h) { return live[h.id]; }).map(function (h) { return Object.assign(h, live[h.id]); });
