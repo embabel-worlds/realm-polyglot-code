@@ -102,12 +102,14 @@
     ids: { type: string, description: "Declaration ids (as SearchCode, MatchDeclarations or a citation give them), '|' between them." }
     names: { type: string, default: "", description: "The ids' own names ('|' between them: jwtDecoder|SecurityConfiguration), to read only the code that mentions them for callers. Empty reads every declaration: right, but slow on a large project." }
     calls: { type: string, default: "", description: "The identifiers their code holds ('|' between them; Declarations gives the code), to read only declarations of those names for callees. Empty reads every declaration." }
+    tests: { type: string, default: "yes", description: "'no' when none of the ids is test code: callers and callees are then read from outside test code only, as they are counted. 'yes' reads test code too." }
   cypher: |
     MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
     WHERE any(i IN split($ids, '|') WHERE i CONTAINS ('!' + d.path + '#'))
+      AND ($names = '' OR d.name IN split($names, '|') OR d.owner IN split($names, '|'))
     WITH collect(d) AS inFiles
     OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(c:CodeDeclaration)
-    WHERE c.kind IN ['function', 'method', 'constructor'] AND c.text IS NOT NULL
+    WHERE c.kind IN ['function', 'method', 'constructor'] AND c.text IS NOT NULL AND ($tests = 'yes' OR NOT toLower(c.path) CONTAINS 'test')
       AND any(n IN CASE WHEN $names = '' THEN [''] ELSE split($names, '|') END
               WHERE c.text CONTAINS (' ' + n + ' ') OR c.text CONTAINS (' ' + n + '(') OR c.text CONTAINS (' ' + n + '<') OR c.text CONTAINS (' ' + n + '.')
                  OR c.text CONTAINS (' ' + n + ')') OR c.text CONTAINS ('(' + n + ' ') OR c.text CONTAINS ('(' + n + '.') OR c.text CONTAINS ('<' + n + '>')
@@ -117,7 +119,8 @@
     WITH inFiles, collect(c) AS naming
     OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(e:CodeDeclaration)
     WHERE $calls = '' OR (e.name IN split($calls, '|')
-      AND e.kind IN ['function', 'method', 'constructor', 'class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type'])
+      AND e.kind IN ['function', 'method', 'constructor', 'class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type']
+      AND ($tests = 'yes' OR NOT toLower(e.path) CONTAINS 'test'))
     WITH inFiles, naming, collect(e) AS called
     UNWIND inFiles + naming + called AS d
     WITH DISTINCT d
@@ -177,12 +180,14 @@
     ids: { type: string, description: "Declaration ids, best first, '|' between them (at most about 10)." }
     names: { type: string, default: "", description: "The ids' own names ('|' between them: jwtDecoder|SecurityConfiguration), to read only the code that mentions them for callers. Empty reads every declaration: right, but slow on a large project." }
     calls: { type: string, default: "", description: "The identifiers their code holds ('|' between them; Declarations gives the code), to read only declarations of those names for callees. Empty reads every declaration." }
+    tests: { type: string, default: "yes", description: "'no' when none of the ids is test code: callers and callees are then read from outside test code only, as they are counted. 'yes' reads test code too." }
   cypher: |
     MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
     WHERE any(i IN split($ids, '|') WHERE i CONTAINS ('!' + d.path + '#'))
+      AND ($names = '' OR d.name IN split($names, '|') OR d.owner IN split($names, '|'))
     WITH collect(d) AS inFiles
     OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(c:CodeDeclaration)
-    WHERE c.kind IN ['function', 'method', 'constructor'] AND c.text IS NOT NULL
+    WHERE c.kind IN ['function', 'method', 'constructor'] AND c.text IS NOT NULL AND ($tests = 'yes' OR NOT toLower(c.path) CONTAINS 'test')
       AND any(n IN CASE WHEN $names = '' THEN [''] ELSE split($names, '|') END
               WHERE c.text CONTAINS (' ' + n + ' ') OR c.text CONTAINS (' ' + n + '(') OR c.text CONTAINS (' ' + n + '<') OR c.text CONTAINS (' ' + n + '.')
                  OR c.text CONTAINS (' ' + n + ')') OR c.text CONTAINS ('(' + n + ' ') OR c.text CONTAINS ('(' + n + '.') OR c.text CONTAINS ('<' + n + '>')
@@ -192,7 +197,8 @@
     WITH inFiles, collect(c) AS naming
     OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(e:CodeDeclaration)
     WHERE $calls = '' OR (e.name IN split($calls, '|')
-      AND e.kind IN ['function', 'method', 'constructor', 'class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type'])
+      AND e.kind IN ['function', 'method', 'constructor', 'class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type']
+      AND ($tests = 'yes' OR NOT toLower(e.path) CONTAINS 'test'))
     WITH inFiles, naming, collect(e) AS called
     UNWIND inFiles + naming + called AS d
     WITH DISTINCT d
