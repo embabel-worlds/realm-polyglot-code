@@ -366,7 +366,7 @@ WITH num, &#x27;[&#x27; + toString(num) + &#x27;] &#x27; + d.language + &#x27; &
        + &#x27;\nCalls or uses (matched by name): &#x27; + CASE WHEN size(callees) = 0 THEN &#x27;nothing declared in this project&#x27; ELSE reduce(a = &#x27;&#x27;, c IN callees[0..10] | a + CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END + &#x27;; &#x27;) END AS item
 ORDER BY num
 RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $project + &#x27;: &#x27; + $question
-       + &#x27; Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its item number in square brackets, like [2], or with its lines after a colon, like [2:30-41]; never put a bare line number in square brackets. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess. Be direct: lead with the answer, then the trace, in at most about 350 words.&#x27;) AS answer,
+       + &#x27; Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its item number in square brackets, like [2], or with its lines after a colon, like [2:30-41]; never put a bare line number in square brackets. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess. Be direct: lead with the answer, then the trace, in at most about 250 words.&#x27;) AS answer,
        count(item) AS declarations</pre></details>
   <h3>What an empty panel means</h3>
   <p>The views read every file of the languages they cover, so an empty answer means none matched — no endpoint in a framework the route
@@ -841,6 +841,8 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
     $('askForm').addEventListener('submit', function (e) { e.preventDefault(); var q = $('question').value.trim(); if (q) ask(q); });
     var project = state.project;
     indexState(project).then(function (st) { if (state.project === project) { state.index = st; drawIndex(); } }).catch(function () { /* a hint only */ });
+    /* Which projects are indexed, read while the reader types, so asking does not wait on it. */
+    view('IndexedProjects', {}).then(function (rows) { rows.forEach(function (r) { INDEXED[r.project] = true; }); }).catch(function () { /* asking reads it again */ });
   }
   function ask(question) {
     var project = state.project;
