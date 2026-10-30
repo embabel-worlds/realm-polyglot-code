@@ -1,12 +1,12 @@
 # Search a project's code by what it does. A project the user marks (IndexedProject) has its types,
 # functions, methods and constructors kept as documents by the `code-declarations` source
-# (sources.yml), one per declaration, re-read on a schedule: a declaration whose text has not changed is
+# (sources.yml), one per declaration, re-read whenever the project's commit changes (checked every minute): a declaration whose text has not changed is
 # not ingested again, whatever commit it is read at or line it has moved to, and one that is gone is pruned. The appliance's document index searches them; the
 # views (SearchCode, SearchAndCallers) lead each hit back to the live declaration and the graph around it.
 
 - name: IndexedProject
   userAnchor: false
-  description: "A project whose code is kept searchable by meaning. Create one with its key to index it (create_entry type IndexedProject, data {key}); delete it to stop. The `code-declarations` documents source reads every IndexedProject on its schedule."
+  description: "A project whose code is kept searchable by meaning. Create one with its key to index it (create_entry type IndexedProject, data {key}); delete it to stop. The `code-declarations` documents source reads every IndexedProject, and again whenever its commit changes."
   properties:
     key: { identity: true, description: "The project key: a repository URL (optionally @ref) or a folder." }
     label: "What the user calls it."
@@ -25,6 +25,19 @@
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host."
     project: "The project as read: host/repo@commit, or the folder."
+
+- name: ProjectVersion
+  visibility: internal
+  userAnchor: false
+  description: "An IndexedProject as it is now: the commit its key resolves to (a branch is re-resolved once a minute), or for a folder a digest of its files' paths, sizes and modification times. Nothing is parsed to read it. Reach it from (:IndexedProject {key})-[:AT]->(v:ProjectVersion)."
+  virtualJoins:
+    - { anchorLabel: IndexedProject, relationship: AT, keyField: key, recordKeyField: anchorKey, producer: projectVersions,
+        description: "(:IndexedProject {key})-[:AT]->(v:ProjectVersion): the project's current commit or folder digest." }
+  properties:
+    id: { identity: true, description: "The project as read." }
+    project: "The project as read: host/repo@commit, or the folder."
+    commit: "The commit a repository is read at; absent for a folder."
+    version: "What changes whenever the project's files do: the commit, or the folder's digest."
 
 - name: CodeSearchHit
   visibility: internal

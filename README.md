@@ -26,9 +26,11 @@ workspace when a question reaches it. Nothing is ingested.
 - **Search and ask, by meaning:** mark a project as an `IndexedProject` and the `code-declarations`
   documents source (`sources.yml`) keeps each of its types, functions and methods as a document
   (`code://<project>!<path>#<kind>:<owner.name>`, tagged `code`, no entity pass). A document is named by
-  what the declaration is and its text carries no line numbers, so each 15-minute run embeds only the
-  declarations whose text changed: a new commit or code that moves re-embeds nothing else, a deleted
-  or renamed declaration is pruned. `realm_sync_documents` runs it at once. `SearchCode` and `SearchAndCallers` find
+  what the declaration is and its text carries no line numbers, so a run embeds only the declarations
+  whose text changed: a new commit or code that moves re-embeds nothing else, a deleted or renamed
+  declaration is pruned. The source watches each project's version (`ProjectVersion`: its commit, or a
+  folder's listing digest, read without parsing), so the host checks every minute and reads the code again
+  only when a commit lands, within a minute or two of the push. `realm_sync_documents` runs it at once. `SearchCode` and `SearchAndCallers` find
   code by what it does; `Declarations` (or `Declaration`) reads the live rows by id. The Atlas
   and Explorer apps' **Ask** finds the code by name, live (`MatchDeclarations`: the question's words against every declaration's
   name, so it answers before anything is embedded), and by meaning (`SearchCode`), merged by declaration; reads the best with
