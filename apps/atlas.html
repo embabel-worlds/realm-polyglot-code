@@ -122,7 +122,7 @@
   <h3>Every view, with the Cypher that runs</h3>
   <details><summary><b>ProjectLanguages</b> — What a project is written in: files, lines and syntax errors per language. The first question to ask of an unfamiliar repository.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]-&gt;(s:Source)
 RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines, sum(coalesce(s.errors, 0)) AS syntaxErrors</pre></details>
-  <details><summary><b>Routes</b> — Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the handler and the line (`test` marks one declared in a test file). Also the paths routes sit under (role prefix), whole REST resources (role resource) and calls the code makes to other services (role client). Matched by the route styles in reference data (RouteStyle); a framework missing there is a row to add, not code to write. Paths are as each route writes them: a route&#x27;s full path is the prefix row in the same file (a class&#x27;s @RequestMapping, [Route] or @Controller) joined to its own. A Rails or DRF resource is one row for the REST resource it declares.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+  <details><summary><b>Routes</b> — Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the handler and the line (`test` marks one declared in a test file). Also the paths routes sit under (role prefix), whole REST resources (role resource) and calls the code makes to other services (role client). Matched by the route styles in reference data (RouteStyle); a framework missing there is a row to add, not code to write. Paths are as each route writes them: a route&#x27;s full path is the prefix row in the same file (a class&#x27;s @RequestMapping, [Route] or @Controller) joined to its own. A Rails or DRF resource is one row for the REST resource it declares. Only calls named like a route style&#x27;s call are read, so a project&#x27;s other calls cost nothing here.</summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
 WHERE size(d.annotationText) &gt; 0
 MATCH (s:RouteStyle {shape: &#x27;annotation&#x27;})
 WHERE d.language IN s.languages
@@ -135,8 +135,10 @@ RETURN s.role AS role, s.method AS method,
        CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS handler,
        a AS declaredAs, toLower(d.path) CONTAINS &#x27;test&#x27; AS test, d.path AS file, d.fromLine AS line, d.url AS url
 UNION ALL
+MATCH (style:RouteStyle {shape: &#x27;call&#x27;})
+WITH collect(DISTINCT style.pattern) AS routeCalls
 MATCH (p:CodeProject {key: $project})-[:CALLS]-&gt;(c:CallSite)
-WHERE size(c.arguments) &gt; 0
+WHERE c.method IN routeCalls AND size(c.arguments) &gt; 0
 MATCH (s:RouteStyle {shape: &#x27;call&#x27;})
 WHERE c.method = s.pattern AND c.language IN s.languages AND (size(s.receivers) = 0 OR c.receiver IN s.receivers)
 WITH c, s, c.arguments[0] AS first
@@ -456,14 +458,10 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
 
   /* ── progress: what each step reads, and for how long ── */
   var STEPS = [
-    ['languages', 'Reading the code', 50, function () { return /^https?:/.test(state.project)
+    ['languages', 'Reading the code', 70, function () { return /^https?:/.test(state.project)
       ? 'Fetching ' + short(state.project) + ' at its latest commit and parsing every file in every language — a first read takes 10–60 s, then it is kept by commit'
       : 'Reading ' + state.project + ' from your workspace and parsing every file'; }],
-    ['routes', 'Endpoints', 15, function () { return 'Matching every annotation, decorator and router call against the known route styles'; }],
-    ['shared', 'Shared names', 10, function () { return 'Comparing the names each language declares'; }],
-    ['deps', 'Dependencies', 10, function () { return 'Grouping every import that leaves the project'; }],
-    ['docs', 'Documentation', 7, function () { return 'Counting doc comments and docstrings'; }],
-    ['largest', 'Complexity', 8, function () { return 'Measuring every function and method'; }]
+    ['routes', 'Endpoints', 30, function () { return 'Matching every annotation, decorator and router call against the known route styles'; }]
   ];
   var prog = {};
   function steps(list) {
@@ -504,13 +502,27 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
     state.project = key; state.data = {}; state.tab = 'routes'; state.ask = null; state.index = null;
     $('project').value = key; location.hash = 'project=' + encodeURIComponent(key);
     steps(STEPS); render();
-    var p = { project: key };
-    /* The first read clones and parses; the rest reuse it, so they wait for it. */
-    run('languages', 'ProjectLanguages', p).then(function () {
+    /* The first read clones and parses; the endpoints follow it. Every other tab reads the whole project's
+       declarations or imports, so each is read when it is opened, one at a time — opening a large project
+       must not ask the appliance for every one of them at once. */
+    run('languages', 'ProjectLanguages', { project: key }).then(function () {
       if (state.data.languages && state.data.languages.error) return;
-      return Promise.all([run('routes', 'Routes', p), run('shared', 'SharedNames', p), run('deps', 'ExternalDependencies', p),
-                          run('docs', 'DocCoverage', p), run('largest', 'LargestFunctions', p)]);
+      return openTab('routes');
     });
+  }
+
+  /* A tab's view, read once when it is first opened; reads queue behind each other. */
+  var TAB_VIEWS = { routes: 'Routes', shared: 'SharedNames', deps: 'ExternalDependencies', docs: 'DocCoverage', largest: 'LargestFunctions' };
+  var queue = Promise.resolve();
+  function openTab(id) {
+    var name = TAB_VIEWS[id], project = state.project;
+    if (!name || state.data[id] !== undefined || (state.queued || {})[id + '|' + project]) return queue;
+    state.queued = state.queued || {}; state.queued[id + '|' + project] = true;
+    queue = queue.then(function () {
+      if (state.project !== project) return;
+      return run(id, name, { project: project });
+    }).catch(function () {});
+    return queue;
   }
 
   function render() {
@@ -525,8 +537,7 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
       var errs = rows.reduce(function (s, r) { return s + (r.syntaxErrors || 0); }, 0);
       var routes = Array.isArray(d.routes) ? d.routes.filter(function (r) { return (r.role === 'route' || r.role === 'resource') && !r.test; }).length : '…';
       html += '<div class="card"><div class="stats">' +
-        stat('Languages', rows.length) + stat('Source files', files) + stat('Lines', lines ? lines.toLocaleString() : '…') + stat('Endpoints', routes) +
-        stat('Shared names', Array.isArray(d.shared) ? d.shared.length : '…') + '</div>' +
+        stat('Languages', rows.length) + stat('Source files', files) + stat('Lines', lines ? lines.toLocaleString() : '…') + stat('Endpoints', routes) + '</div>' +
         '<div class="bar">' + rows.map(function (r) { return '<div title="' + esc(NAMES[r.language] || r.language) + '" style="flex:' + (r.lines || r.files * 100) + ';background:' + (COLORS[r.language] || '#8a94a6') + '"></div>'; }).join('') + '</div>' +
         '<div class="legend">' + rows.map(function (r) { return '<span><i style="background:' + (COLORS[r.language] || '#8a94a6') + '"></i>' + esc(NAMES[r.language] || r.language) + ' · ' + r.files + ' files' + (r.lines ? ' · ' + r.lines.toLocaleString() + ' lines' : '') + '</span>'; }).join('') + '</div>' +
         (errs ? '<div class="note warn">' + errs + ' syntax error' + (errs === 1 ? '' : 's') + ' in the code read — the rest of each file still answers.</div>' : '') + '</div>';
@@ -941,7 +952,7 @@ RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $p
   chips('realworld', REALWORLD); chips('fullstack', FULLSTACK);
   $('compare').addEventListener('click', compare);
   $('form').addEventListener('submit', function (e) { e.preventDefault(); analyze($('project').value); });
-  document.addEventListener('click', function (e) { var b = e.target.closest('.tabs button[data-tab]'); if (b) { state.tab = b.dataset.tab; render(); } });
+  document.addEventListener('click', function (e) { var b = e.target.closest('.tabs button[data-tab]'); if (b) { state.tab = b.dataset.tab; render(); openTab(state.tab); } });
   function fromHash() {
     if (location.hash === '#compare') { if (state.project !== 'RealWorld × 10') compare(); return; }
     var m = location.hash.match(/^#project=([^&]+)(?:&decl=(.+))?$/);
