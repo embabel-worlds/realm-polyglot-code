@@ -66,6 +66,11 @@
   .decl-card{border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:10px}
   #embabel-badge{position:fixed;right:12px;bottom:10px;font-size:11.5px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:4px 10px;color:var(--dim)}
   #embabel-badge a{color:var(--dim)}
+  #how-it-works{display:none;max-width:1320px;margin:0 auto;padding:0 20px 20px} #how-it-works:target{display:block}
+  #how-it-works p{color:var(--text);max-width:110ch}
+  #how-it-works details{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin:6px 0}
+  #how-it-works summary{cursor:pointer} #how-it-works pre{white-space:pre-wrap;color:var(--dim);margin:8px 0 0}
+  footer{color:var(--dim);font-size:12px;text-align:center;margin-top:28px}
 </style>
 </head>
 <body>
@@ -135,7 +140,254 @@
     </form>
     <div class="layout"><div id="answer"></div><aside class="panel side" id="evidence"><div class="note">The declarations found by name and by meaning appear here, the cited ones marked.</div></aside></div>
   </section>
+  <footer><a href="#how-it-works">How it works</a></footer>
 </div>
+<section id="how-it-works">
+  <h2>How it works</h2>
+  <h3>The data</h3>
+  <p>Nothing about a project is uploaded or kept by this page. When you open one, the appliance reads it where it lives through the
+  realm's <code>source-tree</code> producers: a repository at the commit its branch or tag points to now (fetched once without history,
+  then kept by commit — a commit never changes), or a folder in the workspace the appliance owner mounted, read afresh each time. Every
+  language's files, declarations, imports, references and calls are children of the same parents declared by realm-code-model
+  (Source, SourceDeclaration, SourceImport, SourceReference, CallSite), so each view below is one query over all fourteen languages.</p>
+  <p>Search by meaning reads a second store: the realm's <code>code-declarations</code> documents source, which keeps each type,
+  function, method and constructor of a project marked as an IndexedProject as an embedded document. It watches each project's
+  commit and re-reads within a minute or two of a new one, embedding only what changed and pruning what was deleted. So the map,
+  “Fix first”, “Where is it defined?” and the callers are as of the project's current commit; search by meaning is as of the index's
+  last run, and the Search and Ask tabs say how much of the project it holds and when it last read it.</p>
+  <h3>Every view, with the Cypher that runs</h3>
+  <p>The page calls these views of this realm by name (<code>embabel.views.invoke</code>). Besides views it makes three gateway calls,
+  each only where the appliance offers it: <code>repository.createEntry</code> records the project as an IndexedProject when you choose
+  “Make it searchable” or ask about a project not yet indexed; <code>realms.realmSyncDocuments</code> then asks the
+  <code>code-declarations</code> source to read now rather than at its next run; and <code>realms.realmStatus</code> reports whether
+  that source is reading and how far it has got. “Mutual dependencies” in Fix first is computed in the page from the rows
+  PartDependencies already returned, the same pairing the MutualDependencies view makes, so the project is not read twice.</p>
+  <details><summary><b>PartDependencies</b> — The shape of a project: which directories use types declared in which others, with how many uses, how many distinct types, and a few of them. Only a name declared in exactly one directory is counted, so two types sharing a name never join two parts that do not touch. The first answer to &quot;what does this repository look like?&quot;. Every pair of parts is a row (up to 5,000), so the pairs that use each other (MutualDependencies) can be read from these rows without a second read of the project. <i>Parameters: project.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;union&#x27;, &#x27;type&#x27;]
+WITH p, d.name AS type,
+     collect(DISTINCT CASE WHEN d.path CONTAINS &#x27;/&#x27; THEN substring(d.path, 0, size(d.path) - size(split(d.path, &#x27;/&#x27;)[-1]) - 1) ELSE &#x27;.&#x27; END) AS homes
+WHERE size(homes) = 1
+MATCH (p)-[:REFERENCES]-&gt;(r:SourceReference {name: type})
+WITH homes[0] AS to, type,
+     CASE WHEN r.path CONTAINS &#x27;/&#x27; THEN substring(r.path, 0, size(r.path) - size(split(r.path, &#x27;/&#x27;)[-1]) - 1) ELSE &#x27;.&#x27; END AS from
+WHERE from &lt;&gt; to
+RETURN from, to, count(*) AS uses, count(DISTINCT type) AS types, collect(DISTINCT type)[0..5] AS examples
+ORDER BY uses DESC LIMIT 5000</pre></details>
+  <details><summary><b>PartContents</b> — One directory of a project: the types declared directly in it, with their kind, language and line, and how many functions and methods sit beside them. What a part of the code map holds. <i>Parameters: project, part.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+WITH d, CASE WHEN d.path CONTAINS &#x27;/&#x27; THEN substring(d.path, 0, size(d.path) - size(split(d.path, &#x27;/&#x27;)[-1]) - 1) ELSE &#x27;.&#x27; END AS dir
+WHERE dir = $part
+RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name,
+       d.path AS file, d.fromLine AS line, d.url AS url
+ORDER BY file, line LIMIT 500</pre></details>
+  <details><summary><b>Impact</b> — What a change to a type could reach. Depth 1: the files that use it. Depth 2: the files that use a type declared in a depth-1 file. Each row names the type that carries the reach (`via`). Matched by NAME, as WhoUses is, so a shared name widens the reach. At most 500 files. <i>Parameters: project, name.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:REFERENCES]-&gt;(r:SourceReference {name: $name})
+RETURN DISTINCT 1 AS depth, r.path AS file, $name AS via, r.language AS language
+UNION
+MATCH (p:CodeProject {key: $project})-[:REFERENCES]-&gt;(r1:SourceReference {name: $name})
+WITH p, collect(DISTINCT r1.path) AS first
+MATCH (p)-[:DECLARES]-&gt;(d:SourceDeclaration)
+WHERE d.path IN first AND d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;union&#x27;, &#x27;type&#x27;]
+MATCH (p)-[:REFERENCES]-&gt;(r2:SourceReference {name: d.name})
+WHERE NOT r2.path IN first
+RETURN DISTINCT 2 AS depth, r2.path AS file, d.name AS via, r2.language AS language</pre></details>
+  <details><summary><b>IndexedProjects</b> — The projects kept searchable by meaning: each one&#x27;s declarations are read by the code-declarations documents source within a minute or two of each new commit, and only declarations whose text changed are embedded again. <i>Parameters: none.</i></summary><pre class="mono">MATCH (ip:IndexedProject)
+RETURN ip.key AS project, ip.label AS label
+ORDER BY project</pre></details>
+  <details><summary><b>SearchCode</b> — Code found by what it does: the declarations of an indexed project whose purpose is closest to a description, in every language tree-sitter reads, best first. Ask in words (&quot;retry with backoff&quot;, &quot;where money is formatted&quot;), not names; WhereDefined finds names. A project is searchable once it is an IndexedProject and the code-declarations source has run. Each row is what the index holds — the declaration&#x27;s language, kind, name and file — and `id`, the declaration&#x27;s key, the same one its document is named by (code://&lt;id&gt;), which a new commit or a move leaves as it is. Declarations(ids) reads the live rows: signature, doc, line, url and code, and none for a declaration the project no longer has (the index drops it on its next run). <i>Parameters: project, query.</i></summary><pre class="mono">MATCH (c:Concept {value: $query})-[r:RELEVANT_TO]-&gt;(doc:CodeSearchHit)
+WHERE &#x27;code&#x27; IN doc.tags AND doc.uri STARTS WITH &#x27;code://&#x27; + CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27;
+WITH doc, r ORDER BY r.score DESC LIMIT 20
+WITH substring(doc.uri, 7) AS key, doc.title AS title, r.score AS score,
+     size(CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END) + 1 AS at
+WITH key, title, score, split(substring(key, at), &#x27;#&#x27;) AS parts
+WITH key, title, score, parts[0] AS file, split(parts[1], &#x27;:&#x27;)[0] AS kind, split(substring(parts[1], size(split(parts[1], &#x27;:&#x27;)[0]) + 1), &#x27;~&#x27;)[0] AS name
+RETURN split(split(substring(title, size(name) + 2), &#x27; &#x27;)[0], &#x27;)&#x27;)[0] AS language, kind, name, file, score, key AS id
+ORDER BY score DESC</pre></details>
+  <details><summary><b>Declarations</b> — Declarations of an indexed project by key (&#x27;|&#x27; between them), in the order given, as the project reads now: language, kind, name, signature, doc, file, line and url, and `code` — a function&#x27;s lines, numbered, or a type&#x27;s members, up to about 6,000 characters (what AnswerFromCode reads of the first three). Reads only the files the keys name, so it answers in about a second however large the project. No row for a key the project no longer declares. What SearchCode&#x27;s hits and an answer&#x27;s citations lead to. <i>Parameters: project, ids, names.</i></summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+WHERE any(i IN split($ids, &#x27;|&#x27;) WHERE i CONTAINS (&#x27;!&#x27; + d.path + &#x27;#&#x27;))
+  AND ($names = &#x27;&#x27; OR d.name IN split($names, &#x27;|&#x27;) OR d.owner IN split($names, &#x27;|&#x27;))
+WITH d ORDER BY d.fromLine, d.id
+WITH d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
+UNWIND range(0, size(same) - 1) AS i
+WITH same[i] AS d, CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27; + path + &#x27;#&#x27; + kind + &#x27;:&#x27;
+         + CASE WHEN owner = &#x27;&#x27; THEN name ELSE owner + &#x27;.&#x27; + name END + CASE WHEN i = 0 THEN &#x27;&#x27; ELSE &#x27;~&#x27; + toString(i + 1) END AS key
+WITH collect({d: d, key: key}) AS all, split($ids, &#x27;|&#x27;) AS wanted
+UNWIND [x IN all WHERE x.key IN wanted] AS picked
+WITH all, wanted, picked.d AS d, picked.key AS id
+WITH d, id, [k IN range(0, size(wanted) - 1) WHERE wanted[k] = id][0] AS at,
+     CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;]
+          THEN reduce(acc = &#x27;&#x27;, m IN [x IN all WHERE x.d.owner = d.name AND x.d.path = d.path] | CASE WHEN size(acc) &gt; 6000 THEN acc ELSE acc + coalesce(m.d.text, toString(m.d.fromLine) + &#x27;: &#x27; + coalesce(m.d.signature, m.d.name)) + &#x27;\n&#x27; END)
+          ELSE coalesce(d.text, &#x27;&#x27;) END AS body
+RETURN id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name,
+       d.name AS simpleName, d.owner AS owner, d.signature AS signature, d.javadoc AS doc, d.annotationText AS annotations,
+       d.path AS file, d.fromLine AS line, d.toLine AS toLine, d.url AS url,
+       CASE WHEN size(body) &gt; 6000 THEN substring(body, 0, 6000) + &#x27;\n…&#x27; ELSE body END AS code
+ORDER BY at</pre></details>
+  <details><summary><b>WhoCalls</b> — Every call to a name, in every language a project is written in tree-sitter reads, with what it is called on, its arguments and the function it is in. Calls are matched by NAME (resolution &#x27;name&#x27;): this is every call to something called that, not proof of which one — the receiver says more. Java calls are not listed here; its jar and source realms resolve them exactly. <i>Parameters: project, name.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:CALLS]-&gt;(c:CallSite {method: $name})
+RETURN c.language AS language, c.receiver AS receiver, c.method AS method, c.arguments AS arguments,
+       c.enclosing AS caller, c.resolution AS resolution, c.path AS file, c.line AS line, c.url AS url
+ORDER BY file, line LIMIT 1000</pre></details>
+  <details><summary><b>WhoUses</b> — Every place a type is used, in every language: as a parameter&#x27;s, field&#x27;s or return type, a base class, a generic argument or an annotation (&#x27;type&#x27;), or constructed or called by its name (&#x27;call&#x27;), with the declaration it is used in. Matched by NAME: a type of the same name declared elsewhere shares these uses — WhereDefined says how many declare it. <i>Parameters: project, name.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:REFERENCES]-&gt;(r:SourceReference {name: $name})
+RETURN r.language AS language, &#x27;type&#x27; AS how, r.enclosing AS usedIn, r.path AS file, r.line AS line, r.url AS url
+UNION ALL
+MATCH (p:CodeProject {key: $project})-[:CALLS]-&gt;(c:CallSite {method: $name})
+RETURN c.language AS language, &#x27;call&#x27; AS how, c.enclosing AS usedIn, c.path AS file, c.line AS line, c.url AS url</pre></details>
+  <details><summary><b>WhereDefined</b> — Where a name is declared, in every language: a class, function, method, field or constant called exactly this, with its kind, owner, signature, doc and line. Java&#x27;s types are matched by their simple name. <i>Parameters: project, name.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration {name: $name})
+RETURN d.language AS language, d.kind AS kind, d.owner AS owner, d.name AS name, d.signature AS signature,
+       d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url
+UNION ALL
+MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaCodeType {simpleName: $name})
+RETURN &#x27;java&#x27; AS language, t.kind AS kind, &#x27;&#x27; AS owner, t.name AS name, t.kind + &#x27; &#x27; + t.simpleName AS signature,
+       &#x27;&#x27; AS doc, t.path AS file, t.line AS line, t.url AS url</pre></details>
+  <details><summary><b>Hotspots</b> — The types the most files in OTHER directories use: what a project leans on, and where a change costs most. `sameName` above 1 means other types share the name, so the count may include their uses. Test files count as users; filter on the file names if that matters. <i>Parameters: project, limit.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;union&#x27;, &#x27;type&#x27;]
+WITH p, d.name AS type, collect(d) AS declared,
+     collect(DISTINCT CASE WHEN d.path CONTAINS &#x27;/&#x27; THEN substring(d.path, 0, size(d.path) - size(split(d.path, &#x27;/&#x27;)[-1]) - 1) ELSE &#x27;.&#x27; END) AS homes
+MATCH (p)-[:REFERENCES]-&gt;(r:SourceReference {name: type})
+WITH type, declared, homes, r,
+     CASE WHEN r.path CONTAINS &#x27;/&#x27; THEN substring(r.path, 0, size(r.path) - size(split(r.path, &#x27;/&#x27;)[-1]) - 1) ELSE &#x27;.&#x27; END AS dir
+WHERE NOT dir IN homes
+WITH type, declared, count(DISTINCT r.path) AS files, count(DISTINCT dir) AS directories
+RETURN type, declared[0].language AS language, declared[0].kind AS kind, declared[0].path AS file, declared[0].fromLine AS line,
+       files, directories, size(declared) AS sameName, declared[0].url AS url
+ORDER BY files DESC LIMIT $limit</pre></details>
+  <details><summary><b>UnusedTypes</b> — Types that no other file names: candidates to delete, or to check for wiring a name cannot show — a framework that finds them by annotation or by convention, reflection, a configuration file, a template. A type carrying an annotation, decorator or attribute is left out, since that is how frameworks find what they wire. Not a list of dead code: a list of where to look. <i>Parameters: project.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
+WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;union&#x27;, &#x27;type&#x27;]
+  AND size(coalesce(d.annotations, [])) = 0
+OPTIONAL MATCH (p)-[:REFERENCES]-&gt;(r:SourceReference {name: d.name}) WHERE r.path &lt;&gt; d.path
+WITH p, d, count(r) AS referenced
+WHERE referenced = 0
+OPTIONAL MATCH (p)-[:CALLS]-&gt;(c:CallSite {method: d.name}) WHERE c.path &lt;&gt; d.path
+WITH p, d, count(c) AS called
+WHERE called = 0
+OPTIONAL MATCH (p)-[:IMPORTS]-&gt;(i:SourceImport) WHERE d.name IN i.names AND i.path &lt;&gt; d.path
+WITH d, count(i) AS imported
+WHERE imported = 0
+RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS type,
+       d.path AS file, d.fromLine AS line, d.url AS url
+ORDER BY file, line LIMIT 500</pre></details>
+  <details><summary><b>Declaration</b> — One declaration of an indexed project by its key, as a code search hit or a cited answer names it (code://&lt;key&gt;): its language, kind, name, signature, doc and line as the project reads now. No row when the project no longer declares it: it was deleted or renamed since it was indexed. <i>Parameters: project, id.</i></summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+WHERE $id CONTAINS (&#x27;!&#x27; + d.path + &#x27;#&#x27;)
+WITH d ORDER BY d.fromLine, d.id
+WITH d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
+UNWIND range(0, size(same) - 1) AS i
+WITH same[i] AS d, CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27; + path + &#x27;#&#x27; + kind + &#x27;:&#x27;
+         + CASE WHEN owner = &#x27;&#x27; THEN name ELSE owner + &#x27;.&#x27; + name END + CASE WHEN i = 0 THEN &#x27;&#x27; ELSE &#x27;~&#x27; + toString(i + 1) END AS key
+WITH d, key WHERE key = $id
+RETURN key AS id, d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name,
+       d.name AS simpleName, d.owner AS owner, d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.toLine AS toLine, d.url AS url</pre></details>
+  <details><summary><b>IndexState</b> — How much of a project the code index holds: whether it is an IndexedProject, how many of its declarations are held as searchable documents (`indexed`), and when the last was indexed (epoch ms). Search by meaning sees only what is indexed; MatchDeclarations reads every declaration live. The code-declarations source&#x27;s progress, when a run is under way, is in the realm&#x27;s status. <i>Parameters: project.</i></summary><pre class="mono">OPTIONAL MATCH (ip:IndexedProject {key: $project})
+WITH ip IS NOT NULL AS registered
+OPTIONAL MATCH (doc:Document)
+WHERE doc.uri STARTS WITH &#x27;code://&#x27; + CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27;
+RETURN registered, count(doc) AS indexed, max(doc.ingestionEpochMs) AS lastIndexedAt</pre></details>
+  <details><summary><b>MatchDeclarations</b> — The declarations of an indexed project whose names hold a question&#x27;s words, read live from the source tree — no embeddings, so it answers the moment a project is indexed, before any document exists. `terms` is the question&#x27;s words, lower case, space separated, already stemmed (&#x27;security configuration&#x27;, &#x27;jwt validat&#x27;). A declaration is found by a term in its name; it then ranks by the terms its name holds (most), its owner&#x27;s and its path&#x27;s, and — where the name holds none of them that start a word — its code&#x27;s (least); a name the words cover more of ranks higher. In a name a term must start a word (camelCase, snake_case or an acronym) to count most, so &#x27;valid&#x27; ranks validateToken and JWTValidator above InvalidPasswordException. SecurityConfiguration matches &#x27;security configuration&#x27;; test code ranks below the code it tests. Best first, with the same `id` SearchCode returns. Code that holds the words but is not named for them is SearchCode&#x27;s to find. <i>Parameters: project, terms.</i></summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;, &#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;]
+  AND any(t IN split(toLower($terms), &#x27; &#x27;) WHERE size(t) &gt; 1 AND toLower(d.name) CONTAINS t)
+WITH d ORDER BY d.fromLine, d.id
+WITH d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
+UNWIND range(0, size(same) - 1) AS i
+WITH same[i] AS d, CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27; + path + &#x27;#&#x27; + kind + &#x27;:&#x27;
+         + CASE WHEN owner = &#x27;&#x27; THEN name ELSE owner + &#x27;.&#x27; + name END + CASE WHEN i = 0 THEN &#x27;&#x27; ELSE &#x27;~&#x27; + toString(i + 1) END AS key,
+     [t IN split(toLower($terms), &#x27; &#x27;) WHERE size(t) &gt; 1] AS ts
+WITH d, key, ts, size([t IN ts WHERE toLower(d.name) STARTS WITH t OR d.name CONTAINS toUpper(substring(t, 0, 1)) + substring(t, 1)
+                            OR d.name CONTAINS toUpper(t) OR toLower(d.name) CONTAINS &#x27;_&#x27; + t]) AS inName,
+     size([t IN ts WHERE toLower(coalesce(d.owner, &#x27;&#x27;)) CONTAINS t]) AS inOwner,
+     size([t IN ts WHERE toLower(d.path) CONTAINS t]) AS inPath,
+     size([t IN ts WHERE toLower(coalesce(d.text, &#x27;&#x27;)) CONTAINS t]) AS inText
+WHERE size(ts) &gt; 0 AND inName + inOwner + inText &gt; 0
+WITH d, key, inName, inOwner, inPath, inText,
+     (3.0 * inName + CASE WHEN inName = size(ts) THEN 0.0 ELSE 1.0 * inOwner END + 0.5 * inPath + CASE WHEN inName = 0 THEN 0.75 * inText ELSE 0.0 END) / size(ts)
+     + CASE WHEN inName = size(ts) THEN 1.0 ELSE 0.0 END
+     + 0.5 * reduce(n = 0, t IN ts | n + CASE WHEN toLower(d.name) CONTAINS t THEN size(t) ELSE 0 END) / size(d.name)
+     + CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;] THEN 0.5
+            WHEN d.kind = &#x27;constructor&#x27; THEN -0.5 ELSE 0.0 END
+     - CASE WHEN toLower(d.path) CONTAINS &#x27;test&#x27; THEN 1.5 ELSE 0.0 END AS score
+RETURN d.language AS language, d.kind AS kind, CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END AS name,
+       d.signature AS signature, d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url, score,
+       inName AS termsInName, inText AS termsInCode, key AS id
+ORDER BY score DESC, line LIMIT 25</pre></details>
+  <details><summary><b>AnswerFromCode</b> — An answer to a question about an indexed project, written from its code: the declarations given (ids, &#x27;|&#x27; between them, best first) are numbered [1], [2], … in that order, each handed to the model with its signature, annotations, doc, code (more for the first three) and the names of what calls it and what it calls (matched by name), and `synthesize` traces through them to explain how the code does what is asked, citing each declaration it relies on by its number ([2], or [2:30-41] for lines). One model call: the eight items together stay under the 12,000 characters one `synthesize` call takes (about 2,300 each for [1] and [2], 1,500 for [3], 700 for the rest, code cut first: 11,200 at most), because past that it folds in batches — two calls and a third to join them, three times as long. It answers only from the code given: what the declarations do not show, it says is not shown. Find the ids with MatchDeclarations and SearchCode, and their code with Declarations; pass `names` and `calls` to read only what the answer needs (as AskContext does). <i>Parameters: project, question, ids, names, calls, tests.</i></summary><pre class="mono">MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(d:CodeDeclaration)
+WHERE any(i IN split($ids, &#x27;|&#x27;) WHERE i CONTAINS (&#x27;!&#x27; + d.path + &#x27;#&#x27;))
+  AND ($names = &#x27;&#x27; OR d.name IN split($names, &#x27;|&#x27;) OR d.owner IN split($names, &#x27;|&#x27;))
+WITH collect(d) AS inFiles
+OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(c:CodeDeclaration)
+WHERE c.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;] AND c.text IS NOT NULL AND ($tests = &#x27;yes&#x27; OR NOT toLower(c.path) CONTAINS &#x27;test&#x27;)
+  AND any(n IN CASE WHEN $names = &#x27;&#x27; THEN [&#x27;&#x27;] ELSE split($names, &#x27;|&#x27;) END
+          WHERE c.text CONTAINS (&#x27; &#x27; + n + &#x27; &#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;(&#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;&lt;&#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;.&#x27;)
+             OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;)&#x27;) OR c.text CONTAINS (&#x27;(&#x27; + n + &#x27; &#x27;) OR c.text CONTAINS (&#x27;(&#x27; + n + &#x27;.&#x27;) OR c.text CONTAINS (&#x27;&lt;&#x27; + n + &#x27;&gt;&#x27;)
+             OR c.text CONTAINS (&#x27;&lt;&#x27; + n + &#x27;,&#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;::&#x27;) OR c.text CONTAINS (&#x27;: &#x27; + n + &#x27;,&#x27;) OR c.text CONTAINS (&#x27; &#x27; + n + &#x27;\n&#x27;)
+             OR c.text CONTAINS (&#x27;.&#x27; + n + &#x27;(&#x27;) OR c.text CONTAINS (&#x27;(&#x27; + n + &#x27;(&#x27;) OR c.text CONTAINS (&#x27;!&#x27; + n + &#x27;(&#x27;) OR c.text CONTAINS (&#x27;\t&#x27; + n + &#x27;(&#x27;)
+             OR c.text CONTAINS (&#x27;::&#x27; + n) OR c.text CONTAINS (&#x27;.&#x27; + n + &#x27; {&#x27;) OR c.text CONTAINS (&#x27;.&#x27; + n + &#x27;{&#x27;))
+WITH inFiles, collect(c) AS naming
+OPTIONAL MATCH (ip:IndexedProject {key: $project})-[:DECLARES]-&gt;(e:CodeDeclaration)
+WHERE $calls = &#x27;&#x27; OR (e.name IN split($calls, &#x27;|&#x27;)
+  AND e.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;, &#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;]
+  AND ($tests = &#x27;yes&#x27; OR NOT toLower(e.path) CONTAINS &#x27;test&#x27;))
+WITH inFiles, naming, collect(e) AS called
+UNWIND inFiles + naming + called AS d
+WITH DISTINCT d
+WITH d ORDER BY d.fromLine, d.id
+WITH d.path AS path, d.kind AS kind, coalesce(d.owner, &#x27;&#x27;) AS owner, d.name AS name, collect(d) AS same
+UNWIND range(0, size(same) - 1) AS i
+WITH same[i] AS d, CASE WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27; + path + &#x27;#&#x27; + kind + &#x27;:&#x27;
+         + CASE WHEN owner = &#x27;&#x27; THEN name ELSE owner + &#x27;.&#x27; + name END + CASE WHEN i = 0 THEN &#x27;&#x27; ELSE &#x27;~&#x27; + toString(i + 1) END AS key
+WITH collect({d: d, key: key, code: d.kind IN [&#x27;function&#x27;, &#x27;method&#x27;, &#x27;constructor&#x27;], test: toLower(d.path) CONTAINS &#x27;test&#x27;,
+              type: d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;type&#x27;]}) AS all, split($ids, &#x27;|&#x27;) AS wanted
+UNWIND [x IN all WHERE x.key IN wanted] AS picked
+WITH all, wanted, picked.d AS d, picked.key AS id, picked.type AS isType, picked.test AS isTest
+WITH all, d, id, isType, isTest, [k IN range(0, size(wanted) - 1) WHERE wanted[k] = id][0] + 1 AS num,
+     CASE WHEN isType
+          THEN [&#x27; &#x27; + d.name + &#x27; &#x27;, &#x27; &#x27; + d.name + &#x27;(&#x27;, &#x27; &#x27; + d.name + &#x27;&lt;&#x27;, &#x27; &#x27; + d.name + &#x27;.&#x27;, &#x27; &#x27; + d.name + &#x27;)&#x27;, &#x27;(&#x27; + d.name + &#x27; &#x27;, &#x27;(&#x27; + d.name + &#x27;.&#x27;, &#x27;&lt;&#x27; + d.name + &#x27;&gt;&#x27;, &#x27;&lt;&#x27; + d.name + &#x27;,&#x27;, &#x27; &#x27; + d.name + &#x27;::&#x27;, &#x27;: &#x27; + d.name + &#x27;,&#x27;, &#x27; &#x27; + d.name + &#x27;\n&#x27;]
+          ELSE [&#x27;.&#x27; + d.name + &#x27;(&#x27;, &#x27; &#x27; + d.name + &#x27;(&#x27;, &#x27;(&#x27; + d.name + &#x27;(&#x27;, &#x27;!&#x27; + d.name + &#x27;(&#x27;, &#x27;\t&#x27; + d.name + &#x27;(&#x27;, &#x27;::&#x27; + d.name, &#x27;.&#x27; + d.name + &#x27; {&#x27;, &#x27;.&#x27; + d.name + &#x27;{&#x27;] END AS uses
+WITH all, d, id, isType, isTest, num,
+     [x IN all WHERE x.code AND x.d.text CONTAINS d.name AND x.key &lt;&gt; id AND (isTest OR NOT x.test)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &lt;= d.fromLine AND x.d.toLine &gt;= d.toLine)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &gt;= d.fromLine AND x.d.toLine &lt;= d.toLine)
+        AND any(u IN uses WHERE x.d.text CONTAINS u)] AS callers,
+     CASE WHEN num &lt;= 3 THEN 6000 ELSE 2500 END AS budget
+WITH all, d, id, isType, isTest, num, callers, budget,
+     CASE WHEN isType THEN reduce(acc = &#x27;&#x27;, m IN [x IN all WHERE x.d.owner = d.name AND x.d.path = d.path] | CASE WHEN size(acc) &gt; budget THEN acc ELSE acc + coalesce(m.d.text, toString(m.d.fromLine) + &#x27;: &#x27; + coalesce(m.d.signature, m.d.name)) + &#x27;\n&#x27; END)
+          ELSE coalesce(d.text, &#x27;&#x27;) END AS body
+WITH d, num, callers, budget, body,
+     [x IN all WHERE size(x.d.name) &gt; 3 AND body CONTAINS x.d.name AND x.key &lt;&gt; id AND x.d.language = d.language AND (x.code OR x.type) AND (isTest OR NOT x.test)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &gt;= d.fromLine AND x.d.toLine &lt;= d.toLine)
+        AND NOT (x.d.path = d.path AND x.d.fromLine &lt;= d.fromLine AND x.d.toLine &gt;= d.toLine)
+        AND any(u IN CASE WHEN x.code THEN [&#x27;.&#x27; + x.d.name + &#x27;(&#x27;, &#x27; &#x27; + x.d.name + &#x27;(&#x27;, &#x27;(&#x27; + x.d.name + &#x27;(&#x27;, &#x27;!&#x27; + x.d.name + &#x27;(&#x27;, &#x27;::&#x27; + x.d.name]
+                          ELSE [&#x27; &#x27; + x.d.name + &#x27; &#x27;, &#x27; &#x27; + x.d.name + &#x27;(&#x27;, &#x27; &#x27; + x.d.name + &#x27;&lt;&#x27;, &#x27; &#x27; + x.d.name + &#x27;.&#x27;, &#x27;(&#x27; + x.d.name + &#x27; &#x27;, &#x27;(&#x27; + x.d.name + &#x27;.&#x27;, &#x27;&lt;&#x27; + x.d.name + &#x27;&gt;&#x27;, &#x27; &#x27; + x.d.name + &#x27;::&#x27;, &#x27;: &#x27; + x.d.name] END
+               WHERE body CONTAINS u)] AS callees
+WITH num, body,
+     &#x27;[&#x27; + toString(num) + &#x27;] &#x27; + d.language + &#x27; &#x27; + d.kind + &#x27; &#x27; + CASE WHEN d.owner = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END
+       + &#x27;, in &#x27; + d.path + &#x27; lines &#x27; + toString(d.fromLine) + &#x27;-&#x27; + toString(d.toLine) + &#x27;\n&#x27;
+       + reduce(a = &#x27;&#x27;, t IN coalesce(d.annotationText, []) | a + t + &#x27;\n&#x27;) + coalesce(d.signature, &#x27;&#x27;) + &#x27;\n&#x27;
+       + CASE WHEN coalesce(d.javadoc, &#x27;&#x27;) = &#x27;&#x27; THEN &#x27;&#x27; WHEN size(d.javadoc) &gt; 300 THEN substring(d.javadoc, 0, 300) + &#x27;…\n&#x27; ELSE d.javadoc + &#x27;\n&#x27; END AS head,
+     &#x27;\nCalled or used by (matched by name): &#x27; + CASE WHEN size(callers) = 0 THEN &#x27;nothing in this project&#x27; ELSE reduce(a = &#x27;&#x27;, c IN callers[0..6] | a + CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END + &#x27;; &#x27;) + CASE WHEN size(callers) &gt; 6 THEN &#x27;and &#x27; + toString(size(callers) - 6) + &#x27; more&#x27; ELSE &#x27;&#x27; END END
+       + &#x27;\nCalls or uses (matched by name): &#x27; + CASE WHEN size(callees) = 0 THEN &#x27;nothing declared in this project&#x27; ELSE reduce(a = &#x27;&#x27;, c IN callees[0..10] | a + CASE WHEN c.d.owner = &#x27;&#x27; THEN c.d.name ELSE c.d.owner + &#x27;.&#x27; + c.d.name END + &#x27;; &#x27;) END AS tail,
+     CASE WHEN num &lt;= 2 THEN 2300 WHEN num = 3 THEN 1500 ELSE 700 END AS cap
+WITH num, head, tail, cap, CASE WHEN cap - size(head) - size(tail) &lt; 200 THEN 200 ELSE cap - size(head) - size(tail) END AS room, body
+WITH num, cap, head + CASE WHEN size(body) &gt; room THEN substring(body, 0, room) + &#x27;\n…&#x27; ELSE body END + tail AS whole
+WITH num, CASE WHEN size(whole) &gt; cap + 200 THEN substring(whole, 0, cap + 200) + &#x27;…&#x27; ELSE whole END AS item
+ORDER BY num
+RETURN synthesize(item, &#x27;Answer this question about the code of &#x27; + $project + &#x27;: &#x27; + $question
+       + &#x27; Explain HOW it works by tracing through the code given, step by step: what each declaration does, what it calls and in what order, and where data comes from and goes. Cite every declaration you rely on by its item number in square brackets, like [2], or with its lines after a colon, like [2:30-41]; never put a bare line number in square brackets. Name classes and methods in backticks. Use only the code given; where it does not show something the question needs, say so plainly rather than guess. Be direct: lead with the answer, then the trace, in at most about 250 words.&#x27;) AS answer,
+       count(item) AS declarations</pre></details>
+  <h3>What an empty panel means</h3>
+  <p>The views read every file of the languages they cover, so an empty answer means none matched: “Nothing found.”, “Nothing is
+  declared as …”, “Nothing names … outside its own file.” are answers, not failures. A view that read everything and matched nothing is
+  shown as empty, never as an error. A map with no arrows means no part uses another's types — the project may be one directory.
+  Only the 60 most connected parts are drawn. A red line in the status bar is a real failure (the repository could not be read, a view
+  failed), with the appliance's own message.</p>
+  <p>Search by meaning is empty until the code index has read the project; the panel says “not yet searchable” or how many declarations
+  it holds, and a project added in the last few minutes may not be read yet. An index can hold a declaration that was since deleted or
+  renamed: such a hit is dropped when it is read live, and a link to one says it is no longer in the project. Calls outside Java are
+  matched by name, so “Called from” lists every call to something with that name, and counts in Fix first include types that share a
+  name (marked ×n). Unused types are candidates to check, not dead code.</p>
+  <h3>What made this possible</h3>
+  <p>There is no backend behind this page and no copy of the code: it asks the appliance for views by name, and each view is a Cypher
+  query the appliance answers by parsing the project with tree-sitter on demand and caching the result by commit. Fourteen languages
+  answer one query because the realm declares them as children of shared parent types, not because the page knows about any of them.
+  Asking finds code two ways in one round — by name, live (MatchDeclarations), and by meaning, from the index (SearchCode) — reads the
+  best as the project holds them now (Declarations), and AnswerFromCode gathers their code, callers and callees inside its query and
+  calls the model once (<code>synthesize</code>), so the answer is written only from code the page can cite.</p>
+</section>
 <div id="embabel-badge">Built with <a href="https://worlds.embabel.com" target="_blank" rel="noopener">Embabel</a></div>
 
 <script>
