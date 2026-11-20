@@ -1,0 +1,5 @@
+# Java, said again with names RESOLVED by binary name through each file's own imports and types: what a
+# type extends and implements, and each member's parameter and return types, in full. Beside the rows
+# every language has (producers/java.yml), not in place of them.
+- { name: javaTypes,   kind: source-tree, emit: types,   languages: [java] }
+- { name: javaMembers, kind: source-tree, emit: members, languages: [java] }

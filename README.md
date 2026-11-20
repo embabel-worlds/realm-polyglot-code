@@ -6,7 +6,8 @@ workspace when a question reaches it. Nothing is ingested.
 **Install [realm-code-model](https://github.com/embabel-worlds/realm-code-model) with it.** This realm's types extend parents declared there (`Source`, `SourceDeclaration`, `SourceImport`, `CallSite`, `CodeType`). Without it the realm still loads, but its types lose those parents, so a query that names a parent finds none of its rows.
 
 - **Languages:** TypeScript/TSX, JavaScript/JSX, Python, Go, Rust, C, C++, C#, Ruby, PHP, Kotlin,
-  Scala, Swift and Java, all read with tree-sitter; Java's names are resolved by binary name.
+  Scala, Swift and Java, all read with tree-sitter and all the same way. Java's types and members
+  are also available with names resolved by binary name (`JavaCodeType`, `JavaCodeMember`).
 - **One model:** every language's rows are children of the same standard-model parents (`Source`,
   `SourceDeclaration`, `SourceImport`, `CallSite`), so a query spans a Python backend and its
   TypeScript frontend, or a Java service and its Kotlin client.
@@ -14,6 +15,9 @@ workspace when a question reaches it. Nothing is ingested.
   `WhereDefined`, `WhoCalls`, `SharedNames`, `ExternalDependencies`, `DocCoverage`,
   `LargestFunctions`; and how the code holds together, after shinar's code realm: `WhoUses`,
   `PartDependencies`, `MutualDependencies`, `Hotspots`, `UnusedTypes`, `Impact`.
+- **For a coding agent:** `RulesHeadroom` (will this file, its package and its methods still pass
+  the size rules, and how much room is left) and `TestsFor` (which tests exercise a type, and the
+  command that runs each), in any language.
 - **Java metrics:** `JavaMethodMetrics` (per method: lines, ifs, loops, switches, ternaries, try,
   catch, instanceof, casts), `JavaConstructDensity` (each construct per 100 lines), `JavaCastTargets`
   (the types cast to, most first) and `JavaCasts` (every cast, with its method and line). They count
@@ -58,5 +62,5 @@ SharedNames(project: 'https://github.com/fastapi/full-stack-fastapi-template')
 
 `tools/generate.py` writes the per-language types and producers; edit it, not them.
 
-Calls outside Java are matched by name and say so (`resolution: name`). Requires the appliance's
+Calls are matched by name and say so (`resolution: name`). Requires the appliance's
 `source-tree` producer kind. Apache-2.0.

@@ -3,7 +3,7 @@
 # method and per hundred lines.
 #
 #   MATCH (p:CodeProject {key: $project})-[:HAS_CONSTRUCT]->(c:JavaConstruct)   every construct
-#   (p)-[:HAS_SOURCE]->(s:JavaSource)                                              every Java file, with its lines
+#   (p)-[:HAS_SOURCE]->(s:JavaCodeSource)                                              every Java file, with its lines
 
 - name: JavaConstruct
   visibility: internal
@@ -26,21 +26,4 @@
     path: "Source file, relative to the project."
     language: "java"
     url: "The line on the repository's host, when it has a file view."
-    project: "The project as read: the folder, or host/repo@commit."
-
-- name: JavaSource
-  parents: [Source]
-  visibility: internal
-  userAnchor: false
-  description: "A Java source file of a project, with its line count, hash and syntax errors. Reach it from (:CodeProject {key})-[:HAS_SOURCE]->; name the parent (Source) to read every language at once."
-  virtualJoins:
-    - { anchorLabel: CodeProject, relationship: HAS_SOURCE, keyField: key, recordKeyField: anchorKey, producer: javaFiles, maxFanoutTotal: 200000,
-        description: "(:CodeProject {key:$project})-[:HAS_SOURCE]->(x:JavaSource)" }
-  properties:
-    path: "File path, relative to the project."
-    language: "java"
-    lines: { type: int, description: "Lines in the file." }
-    parsed: { type: boolean, description: "The file was read and parsed (false: too large, too slow, or unreadable)." }
-    errors: { type: int, description: "Syntax errors its tree holds; the rest of the file still answers." }
-    url: "The file on the repository's host, when it has a file view."
     project: "The project as read: the folder, or host/repo@commit."

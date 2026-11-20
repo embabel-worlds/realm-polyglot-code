@@ -1,0 +1,112 @@
+# FOR A CODING AGENT, BEFORE AND AFTER AN EDIT, IN ANY LANGUAGE. One call each, so that an agent learns
+# a rule from the answer and not from a refused push, and runs the tests that matter and not the build.
+
+- name: RulesHeadroom
+  description: >-
+    SELECT THIS before adding a class, a method or many lines to a file: "will this still pass the
+    size rules", "how much room is left in this package / file", "which methods are near the
+    limit". For one file: how many top-level types its package already holds against the cap (counted
+    across every module that has the package, in main source), how long the file is against the cap, and each method of the file that
+    is at or past four fifths of the cap for a method's length. One row per thing measured, with
+    `value`, `cap`, `headroom` (cap minus value; negative means over) and `verdict` (ok, near,
+    over). The caps default to common limits (50 top-level types in a package, 600 lines in a file,
+    60 lines in a method); pass the project's own. File length is the last line any declaration
+    reaches, so trailing blank lines and comments are not counted. Read from source as written, in
+    any language; nothing is compiled.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    path: { type: string, description: "The file, relative to the project." }
+    typeCap: { type: int, default: 50, description: "Most top-level types a package may hold." }
+    fileCap: { type: int, default: 600, description: "Most lines a file may have." }
+    methodCap: { type: int, default: 60, description: "Most lines a method may have." }
+  cypher: |
+    /* The package is the directory under the source root, whichever module it is in: a package split over modules is one package to a rule about its size. */
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.path = $path OR (coalesce(d.owner, '') = '' AND d.kind IN ['class', 'interface', 'object', 'enum', 'record', 'annotation', 'struct', 'trait', 'type', 'function', 'variable', 'constant'] AND NOT d.path CONTAINS 'src/test/')
+    WITH d, substring($path, 0, size($path) - size(last(split($path, '/')))) AS dir
+    WITH d, dir, CASE WHEN dir CONTAINS 'src/main/' THEN substring(split(dir, 'src/main/')[1], size(split(split(dir, 'src/main/')[1], '/')[0])) ELSE '' END AS package
+    WITH collect(d) AS all, dir, package
+    WITH dir, package,
+         [x IN all WHERE x.path <> $path OR coalesce(x.owner, '') = ''] AS candidates,
+         [x IN all WHERE x.path = $path] AS here
+    WITH dir, package, here,
+         [x IN candidates WHERE coalesce(x.owner, '') = ''
+            AND (CASE WHEN package = '' THEN x.path STARTS WITH dir AND NOT substring(x.path, size(dir)) CONTAINS '/'
+                      ELSE x.path CONTAINS 'src/main/' AND x.path ENDS WITH package + last(split(x.path, '/')) END)] AS topLevel
+    /* A Kotlin file with functions or properties at its top level compiles to a class of its own. Declared types are what is counted; these are named beside the count. */
+    WITH dir, package, here,
+         [x IN topLevel WHERE x.kind IN ['class', 'interface', 'object', 'enum', 'record', 'annotation', 'struct', 'trait', 'type']] AS types,
+         reduce(files = [], x IN [x IN topLevel WHERE x.kind IN ['function', 'variable', 'constant'] AND x.path ENDS WITH '.kt'] | CASE WHEN x.path IN files THEN files ELSE files + x.path END) AS facades
+    WITH dir, package, types, facades, here,
+         reduce(last = 0, x IN here | CASE WHEN coalesce(x.toLine, x.line, 0) > last THEN coalesce(x.toLine, x.line, 0) ELSE last END) AS lines,
+         [x IN here WHERE x.kind IN ['method', 'function', 'constructor'] AND x.toLine IS NOT NULL AND x.fromLine IS NOT NULL
+                          AND (x.toLine - x.fromLine + 1) * 5 >= $methodCap * 4] AS longMethods
+    WITH [['top-level types in the package', CASE WHEN package = '' THEN dir ELSE replace(substring(package, 1, size(package) - 2), '/', '.') + ' (in ' + toString(size(reduce(dirs = [], x IN types | CASE WHEN split(x.path, 'src/main/')[0] IN dirs THEN dirs ELSE dirs + split(x.path, 'src/main/')[0] END))) + ' module(s))' END,
+           size(types), $typeCap, 'Add a type here only if the package stays within its cap; otherwise it belongs in another package or nested in a type that owns it.' +
+             CASE WHEN size(facades) > 0 THEN ' Not counted: ' + toString(size(facades)) + ' Kotlin file(s) with functions or properties at their top level, which a rule over compiled classes may count as one each.' ELSE '' END],
+          ['lines in the file', $path, lines, $fileCap, 'Past the cap the file has to be split: move a cohesive part to a file of its own. A rule that counts only lines of code will read lower than this.']] +
+         [m IN longMethods | ['lines in the method', coalesce(m.owner, '') + CASE WHEN coalesce(m.owner, '') = '' THEN '' ELSE '.' END + m.name + ' (line ' + toString(m.fromLine) + ')',
+                              m.toLine - m.fromLine + 1, $methodCap, 'Adding to this method will take it past the cap: extract part of it first.']] AS rows
+    UNWIND rows AS r
+    RETURN r[0] AS rule, r[1] AS subject, r[2] AS value, r[3] AS cap, r[3] - r[2] AS headroom,
+           CASE WHEN r[2] > r[3] THEN 'over' WHEN r[2] * 10 >= r[3] * 9 THEN 'near' ELSE 'ok' END AS verdict, r[4] AS advice
+    ORDER BY headroom
+
+- name: TestsFor
+  description: >-
+    SELECT THIS after changing a type, to run only what exercises it: "which tests cover Foo",
+    "how do I run the tests for this class". In any language: the test files that import the name or
+    are named for it (FooTest, foo_test.go, foo.test.ts, test_foo.py), each with `why` it was
+    chosen, its module and, for a Maven layout, the JUnit tags it runs under and `command`: the
+    Maven command that runs it and builds what it needs. A test file is one under a test directory
+    (src/test, test, tests, __tests__) or named as one (_test.go, _test.py, test_*.py, .test., .spec.).
+    A tag comes from JUnit's @Tag on the test, or from an annotation of the project's own that
+    carries one. With `tagIsProfile` true a tagged test's command names the Maven profile of the
+    same name, for a build that runs tagged tests only under their profile; such a test run without
+    it runs nothing and says nothing. `command` is empty where the build is not Maven. Matched by
+    name from source as written: a test that reaches the type only through another type is not
+    found, and a type of the same simple name elsewhere is not told apart.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    type: { type: string, description: "The type's simple name, e.g. OwnerController." }
+    tagIsProfile: { type: boolean, default: false, description: "True when the build runs a tagged test only under the Maven profile named for its tag." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})
+    /* OPTIONAL: a type no test imports may still have a test named for it. */
+    OPTIONAL MATCH (p)-[:IMPORTS]->(i:SourceImport)
+    WHERE (i.path CONTAINS 'src/test/' OR i.path CONTAINS '/test/' OR i.path CONTAINS '/tests/' OR i.path STARTS WITH 'test/' OR i.path STARTS WITH 'tests/' OR i.path CONTAINS '__tests__/' OR i.path ENDS WITH '_test.go' OR i.path ENDS WITH '_test.py' OR i.path CONTAINS '.test.' OR i.path CONTAINS '.spec.' OR last(split(i.path, '/')) STARTS WITH 'test_') AND (coalesce(i.imported, '') ENDS WITH '.' + $type OR coalesce(i.imported, '') ENDS WITH '/' + $type OR $type IN coalesce(i.names, []))
+    WITH p, collect(DISTINCT i.path) AS importing
+    MATCH (p)-[:DECLARES]->(d:SourceDeclaration)
+    WHERE (d.path CONTAINS 'src/test/' OR d.path CONTAINS '/test/' OR d.path CONTAINS '/tests/' OR d.path STARTS WITH 'test/' OR d.path STARTS WITH 'tests/' OR d.path CONTAINS '__tests__/' OR d.path ENDS WITH '_test.go' OR d.path ENDS WITH '_test.py' OR d.path CONTAINS '.test.' OR d.path CONTAINS '.spec.' OR last(split(d.path, '/')) STARTS WITH 'test_') AND coalesce(d.owner, '') = ''
+    WITH importing, collect(d) AS inTests
+    WITH importing, [x IN inTests WHERE x.kind IN ['class', 'object']] AS testTypes, inTests
+    /* The project's own annotations that put a test under a tag: those carrying @Tag, and those carrying one of those. */
+    WITH importing, testTypes, inTests,
+         [x IN testTypes WHERE ANY(t IN coalesce(x.annotationText, []) WHERE t STARTS WITH '@Tag(') | [x.name, [t IN x.annotationText WHERE t STARTS WITH '@Tag(' | split(t, '"')[1]]]] AS tagging
+    WITH importing, inTests, tagging,
+         [x IN testTypes WHERE ANY(a IN coalesce(x.annotations, []) WHERE a IN [t IN tagging | t[0]])
+            | [x.name, reduce(all = [], t IN [t IN tagging WHERE t[0] IN x.annotations] | all + t[1])]] AS carrying
+    /* one row per test FILE: its first top-level declaration stands for it */
+    UNWIND inTests AS t
+    WITH t, importing, tagging, carrying, last(split(t.path, '/')) AS file
+    WITH t, importing, tagging, carrying, file, split(file, '.')[0] AS stem
+    WITH t, tagging, carrying, file,
+         CASE WHEN t.path IN importing THEN 'imports it'
+              WHEN t.kind IN ['class', 'object'] AND t.name STARTS WITH $type AND t.name <> $type THEN 'named for it'
+              WHEN toLower(stem) IN [toLower($type) + '_test', 'test_' + toLower($type), toLower($type) + 'test', toLower($type) + 'tests', toLower($type)] AND toLower(stem) <> toLower($type) THEN 'named for it'
+              WHEN toLower(stem) = toLower($type) AND (file CONTAINS '.test.' OR file CONTAINS '.spec.') THEN 'named for it' END AS why
+    WHERE why IS NOT NULL
+    WITH t.path AS path, collect(t) AS decls, collect(why)[0] AS why, tagging, carrying
+    WITH path, why, tagging, carrying,
+         coalesce([x IN decls WHERE x.kind IN ['class', 'object']][0], decls[0]) AS t
+    WITH path, why, t, reduce(all = [], g IN tagging + carrying | CASE WHEN g[0] IN coalesce(t.annotations, []) THEN all + g[1] ELSE all END) +
+            [a IN coalesce(t.annotationText, []) WHERE a STARTS WITH '@Tag(' | split(a, '"')[1]] AS tags,
+         CASE WHEN path CONTAINS '/src/test/' THEN split(path, '/src/test/')[0] ELSE '' END AS module, path CONTAINS 'src/test/' AS maven
+    WITH path, why, t, module, maven, reduce(seen = [], x IN tags | CASE WHEN x IN seen THEN seen ELSE seen + x END) AS tags
+    RETURN CASE WHEN t.kind IN ['class', 'object'] THEN t.name ELSE last(split(path, '/')) END AS test, why, module, tags,
+           CASE WHEN maven AND t.kind IN ['class', 'object']
+                THEN './mvnw -q ' + CASE WHEN module = '' THEN '' ELSE '-pl ' + module + ' -am ' END + 'test -Dtest=' + t.name +
+                     ' -Dsurefire.failIfNoSpecifiedTests=false' + CASE WHEN $tagIsProfile AND size(tags) > 0 THEN ' -P' + tags[0] ELSE '' END
+                ELSE '' END AS command,
+           t.language AS language, path, t.fromLine AS line
+    ORDER BY size(tags), test LIMIT 200

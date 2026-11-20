@@ -1,4 +1,3 @@
 # Java's syntax counted per method, with the realm's own tree-sitter query (queries/java-metrics.scm):
-# one row per construct, each naming the method it is in. `javaFiles` gives the lines the rates are per.
+# one row per construct, each naming the method it is in. The lines the rates are per come from Java's files (producers/java.yml).
 - { name: javaConstructs, kind: source-tree, emit: captures, languages: [java], query: queries/java-metrics.scm }
-- { name: javaFiles,      kind: source-tree, emit: files,    languages: [java] }
