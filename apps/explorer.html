@@ -230,13 +230,9 @@ RETURN r.language AS language, &#x27;type&#x27; AS how, r.enclosing AS usedIn, r
 UNION ALL
 MATCH (p:CodeProject {key: $project})-[:CALLS]-&gt;(c:CallSite {method: $name})
 RETURN c.language AS language, &#x27;call&#x27; AS how, c.enclosing AS usedIn, c.path AS file, c.line AS line, c.url AS url</pre></details>
-  <details><summary><b>WhereDefined</b> — Where a name is declared, in every language: a class, function, method, field or constant called exactly this, with its kind, owner, signature, doc and line. Java&#x27;s types are matched by their simple name. <i>Parameters: project, name.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration {name: $name})
+  <details><summary><b>WhereDefined</b> — Where a name is declared, in every language: a class, function, method, field or constant called exactly this, with its kind, owner, signature, doc and line. <i>Parameters: project, name.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration {name: $name})
 RETURN d.language AS language, d.kind AS kind, d.owner AS owner, d.name AS name, d.signature AS signature,
-       d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url
-UNION ALL
-MATCH (p:CodeProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaCodeType {simpleName: $name})
-RETURN &#x27;java&#x27; AS language, t.kind AS kind, &#x27;&#x27; AS owner, t.name AS name, t.kind + &#x27; &#x27; + t.simpleName AS signature,
-       &#x27;&#x27; AS doc, t.path AS file, t.line AS line, t.url AS url</pre></details>
+       d.javadoc AS doc, d.path AS file, d.fromLine AS line, d.url AS url</pre></details>
   <details><summary><b>Hotspots</b> — The types the most files in OTHER directories use: what a project leans on, and where a change costs most. `sameName` above 1 means other types share the name, so the count may include their uses. Test files count as users; filter on the file names if that matters. <i>Parameters: project, limit.</i></summary><pre class="mono">MATCH (p:CodeProject {key: $project})-[:DECLARES]-&gt;(d:SourceDeclaration)
 WHERE d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;struct&#x27;, &#x27;enum&#x27;, &#x27;trait&#x27;, &#x27;record&#x27;, &#x27;protocol&#x27;, &#x27;object&#x27;, &#x27;union&#x27;, &#x27;type&#x27;]
 WITH p, d.name AS type, collect(d) AS declared,

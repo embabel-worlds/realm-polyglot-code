@@ -10,6 +10,8 @@ LANGUAGES = [
     ("Python", "python", "Python"), ("Go", "go", "Go"), ("Rust", "rust", "Rust"), ("C", "c", "C"),
     ("Cpp", "cpp", "C++"), ("CSharp", "csharp", "C#"), ("Ruby", "ruby", "Ruby"), ("Php", "php", "PHP"),
     ("Kotlin", "kotlin", "Kotlin"), ("Scala", "scala", "Scala"), ("Swift", "swift", "Swift"),
+    # JavaCode, not Java: the Java realms (java-source-code, jvm-logs) already have a JavaSource and a JavaDeclaration.
+    ("JavaCode", "java", "Java"),
 ]
 
 COMMON = {

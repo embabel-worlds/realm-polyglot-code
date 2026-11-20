@@ -39,7 +39,7 @@
   params:
     project: { type: string, description: "Project key." }
   cypher: |
-    MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]->(s:JavaSource)
+    MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]->(s:JavaCodeSource)
     WITH sum(s.lines) AS javaLines, count(s) AS javaFiles
     MATCH (p:CodeProject {key: $project})-[:HAS_CONSTRUCT]->(c:JavaConstruct)
     WHERE c.capture IN ['if', 'loop', 'switch', 'ternary', 'try', 'catch', 'instanceof', 'cast']
@@ -57,7 +57,7 @@
   params:
     project: { type: string, description: "Project key." }
   cypher: |
-    MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]->(s:JavaSource)
+    MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]->(s:JavaCodeSource)
     WITH sum(s.lines) AS javaLines
     MATCH (p:CodeProject {key: $project})-[:HAS_CONSTRUCT]->(c:JavaConstruct {capture: 'cast.type'})
     WITH javaLines, collect(c) AS casts
