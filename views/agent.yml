@@ -52,6 +52,62 @@
            CASE WHEN r[2] > r[3] THEN 'over' WHEN r[2] * 10 >= r[3] * 9 THEN 'near' ELSE 'ok' END AS verdict, r[4] AS advice
     ORDER BY headroom
 
+- name: PushChecks
+  description: >-
+    SELECT THIS before pushing a change to a file: "will this push be refused", "what will lint or
+    the architecture tests object to in this file". For one file, the things a push is commonly
+    refused for that no size rule says, each with its line and `verdict`: `refused` (a check that
+    fails the push as written) or `check` (a change here usually needs a second edit elsewhere that
+    a check enforces). Kotlin: string literals joined with + (two or more in one chain; a multiline
+    string instead), and a fully qualified com.embabel., java. or kotlin. name written inline (import
+    it). Kotlin and Java: a direct java.nio.file.Files write, move or delete, which a repository that
+    funnels file writes (embabel/me's WorldWriteFunnelTest) refuses unless the file is allowlisted
+    with a reason; and each Spring bean or event listener the file declares, which a repository that
+    keeps a bean inventory (embabel/me's bean-inventory.txt and world-bean-inventory.txt) needs
+    listed. Read from source as written. Not seen: a + of literals inside an annotation or a const val
+    (allowed there, and reported here), lint run by other tools, and what a test asserts.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    path: { type: string, description: "The file, relative to the project." }
+  cypher: |
+    CALL {
+      /* Literals joined with +: every link of a left-nested chain starts where the chain does, so a chain is its start. */
+      MATCH (p1:CodeProject {key: $project})-[:HAS_PUSH_CHECK]->(c1:KotlinPushCheck)
+      WHERE c1.path = $path AND c1.capture IN ['concat', 'concat.literal'] AND coalesce(c1.enclosingKind, '') <> 'constant'
+      WITH c1.match AS m1, collect(c1) AS parts1
+      WITH [x IN parts1 WHERE x.capture = 'concat'][0] AS plus1, size([x IN parts1 WHERE x.capture = 'concat.literal']) AS lits1
+      WHERE plus1 IS NOT NULL
+      WITH plus1.line AS at1, plus1.column AS col1, sum(lits1) AS total1, collect(plus1.enclosing)[0] AS in1
+      WHERE total1 >= 2
+      RETURN 'string literals joined with +' AS rule, at1 AS line, toString(total1) + ' literals in ' + coalesce(in1, 'the file') AS subject,
+             'refused' AS verdict, 'Write one multiline string ("""...""".trimIndent()) instead. Allowed only in an annotation argument or a const val.' AS advice
+      UNION ALL
+      MATCH (p2:CodeProject {key: $project})-[:HAS_PUSH_CHECK]->(c2:KotlinPushCheck)
+      WHERE c2.path = $path AND c2.capture = 'qualified'
+      WITH c2.line AS at2, collect(c2.text) AS texts2
+      RETURN 'fully qualified name written inline' AS rule, at2 AS line, reduce(shortest = texts2[0], t IN texts2 | CASE WHEN size(t) < size(shortest) THEN t ELSE shortest END) AS subject,
+             'refused' AS verdict, 'Import the type and use its simple name.' AS advice
+      UNION ALL
+      MATCH (p3:CodeProject {key: $project})-[:CALLS]->(k:CallSite)
+      WHERE k.path = $path AND k.receiver = 'Files'
+        AND k.method IN ['write', 'writeString', 'createDirectories', 'createDirectory', 'createFile', 'createTempFile', 'createTempDirectory',
+                         'move', 'copy', 'delete', 'deleteIfExists', 'newOutputStream', 'newBufferedWriter', 'setLastModifiedTime', 'setPosixFilePermissions']
+      RETURN 'direct file write' AS rule, k.line AS line, 'Files.' + k.method + ' in ' + coalesce(k.enclosing, 'the file') AS subject,
+             CASE WHEN $path CONTAINS 'src/test/' THEN 'ok' ELSE 'check' END AS verdict,
+             'A repository that funnels file writes refuses this unless the file is allowlisted with a reason (embabel/me: route the write through WorldStore, or add the file to WorldWriteFunnelTest when it writes outside every user world).' AS advice
+      UNION ALL
+      MATCH (p4:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+      WHERE d.path = $path AND NOT $path CONTAINS 'src/test/'
+        AND ANY(a IN coalesce(d.annotations, []) WHERE a IN ['EventListener', 'TransactionalEventListener', 'Bean', 'Component', 'Service', 'Repository',
+                                                         'Configuration', 'RestController', 'Controller', 'ConfigurationProperties'])
+      RETURN 'bean or listener' AS rule, d.fromLine AS line,
+             coalesce(d.owner, '') + CASE WHEN coalesce(d.owner, '') = '' THEN '' ELSE '.' END + d.name + ' (@' + [a IN d.annotations WHERE a IN ['EventListener', 'TransactionalEventListener', 'Bean', 'Component', 'Service', 'Repository', 'Configuration', 'RestController', 'Controller', 'ConfigurationProperties']][0] + ')' AS subject,
+             'check' AS verdict,
+             'A repository that keeps a bean inventory fails when a bean or listener is added, renamed or removed without it (embabel/me: assistant/src/test/resources/bean-inventory.txt and world-bean-inventory.txt, one line per listener as Event -> class.method).' AS advice
+    }
+    RETURN rule, line, subject, verdict, advice
+    ORDER BY CASE verdict WHEN 'refused' THEN 0 WHEN 'check' THEN 1 ELSE 2 END, line
+
 - name: TestsFor
   description: >-
     SELECT THIS after changing a type, to run only what exercises it: "which tests cover Foo",
