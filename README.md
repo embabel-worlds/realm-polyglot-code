@@ -12,7 +12,7 @@ workspace when a question reaches it. Nothing is ingested.
   `SourceDeclaration`, `SourceImport`, `CallSite`), so a query spans a Python backend and its
   TypeScript frontend, or a Java service and its Kotlin client.
 - **Views:** `ProjectLanguages`, `Routes` (every HTTP endpoint, in any of a dozen frameworks),
-  `WhereDefined`, `WhoCalls`, `SharedNames`, `ExternalDependencies`, `DocCoverage`,
+  `WhereDefined`, `WhoCalls`, `PushChecks`, `SharedNames`, `ExternalDependencies`, `DocCoverage`,
   `LargestFunctions`; and how the code holds together, after shinar's code realm: `WhoUses`,
   `PartDependencies`, `MutualDependencies`, `Hotspots`, `UnusedTypes`, `Impact`.
 - **For a coding agent:** `RulesHeadroom` (will this file, its package and its methods still pass
