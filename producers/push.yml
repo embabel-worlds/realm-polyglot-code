@@ -1,0 +1,5 @@
+# Kotlin's push checks, with the realm's own tree-sitter query (queries/kotlin-push.scm): one row per
+# captured literal joined with + and per inline qualified name, each naming the declaration it is in.
+# Kept in the graph for the revision read, so a second question about the same commit reads no file.
+- { name: kotlinPushChecks, kind: source-tree, emit: captures, languages: [kotlin], query: queries/kotlin-push.scm,
+    cache: { kind: graph, validFor: revision } }
