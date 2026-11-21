@@ -76,3 +76,18 @@
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host, when it has a file view."
     project: "The project as read: the folder, or host/repo@commit."
+
+- name: PythonAccess
+  parents: [MemberAccess]
+  visibility: internal
+  userAnchor: false
+  description: "A member a Python file names on a receiver and does not call there (a property, field or attribute, read or assigned), with the receiver and the member it is in. Matched by NAME only (`resolution: name`): say 'uses something named X'. A called member is a CallSite instead. Reach it from (:CodeProject {key})-[:ACCESSES]->; name the parent (MemberAccess) to read every language at once."
+  virtualJoins:
+    - { anchorLabel: CodeProject, relationship: ACCESSES, keyField: key, recordKeyField: anchorKey, producer: pythonAccesses, maxFanoutTotal: 200000,
+        description: "(:CodeProject {key:$project})-[:ACCESSES]->(x:PythonAccess)" }
+  properties:
+    path: "File path, relative to the project."
+    language: "The language, as the producer names it."
+    line: { type: int, description: "Line it is on." }
+    url: "The line on the repository's host, when it has a file view."
+    project: "The project as read: the folder, or host/repo@commit."

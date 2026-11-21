@@ -71,17 +71,26 @@
 
 - name: WhoCalls
   description: >-
-    Every call to a name, in every language a project is written in tree-sitter reads, with what it
-    is called on, its arguments and the function it is in. Calls are matched by NAME (resolution
-    'name'): this is every call to something called that, not proof of which one — the receiver says
-    more.
+    Every use of a name, in every language a project is written in tree-sitter reads: each call to
+    it, with what it is called on, its arguments and the function it is in, and (in Kotlin, Java,
+    TypeScript, JavaScript and Python) each time it is named on a receiver without being called, a
+    property, field or attribute read or assigned (`access: property`). Matched by NAME (resolution
+    'name'): this is every use of something called that, not proof of which one — the receiver says
+    more. A Kotlin property is used by access, so a name with no calls may still be used.
   params:
     project: { type: string, description: "Project key." }
-    name: { type: string, description: "The called name, exactly (e.g. save, get, fetchUser)." }
+    name: { type: string, description: "The name, exactly (e.g. save, get, fetchUser, status)." }
   cypher: |
-    MATCH (p:CodeProject {key: $project})-[:CALLS]->(c:CallSite {method: $name})
-    RETURN c.language AS language, c.receiver AS receiver, c.method AS method, c.arguments AS arguments,
-           c.enclosing AS caller, c.resolution AS resolution, c.path AS file, c.line AS line, c.url AS url
+    CALL {
+      MATCH (p:CodeProject {key: $project})-[:CALLS]->(c:CallSite {method: $name})
+      RETURN 'call' AS access, c.language AS language, c.receiver AS receiver, c.method AS method, c.arguments AS arguments,
+             c.enclosing AS caller, c.resolution AS resolution, c.path AS file, c.line AS line, c.url AS url
+      UNION ALL
+      MATCH (p:CodeProject {key: $project})-[:ACCESSES]->(a:MemberAccess {name: $name})
+      RETURN 'property' AS access, a.language AS language, a.receiver AS receiver, a.name AS method, [] AS arguments,
+             a.enclosing AS caller, a.resolution AS resolution, a.path AS file, a.line AS line, a.url AS url
+    }
+    RETURN access, language, receiver, method, arguments, caller, resolution, file, line, url
     ORDER BY file, line LIMIT 1000
 
 - name: SharedNames
