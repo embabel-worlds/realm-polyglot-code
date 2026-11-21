@@ -82,11 +82,11 @@
     name: { type: string, description: "The name, exactly (e.g. save, get, fetchUser, status)." }
   cypher: |
     CALL {
-      MATCH (p:CodeProject {key: $project})-[:CALLS]->(c:CallSite {method: $name})
+      MATCH (p1:CodeProject {key: $project})-[:CALLS]->(c:CallSite {method: $name})
       RETURN 'call' AS access, c.language AS language, c.receiver AS receiver, c.method AS method, c.arguments AS arguments,
              c.enclosing AS caller, c.resolution AS resolution, c.path AS file, c.line AS line, c.url AS url
       UNION ALL
-      MATCH (p:CodeProject {key: $project})-[:ACCESSES]->(a:MemberAccess {name: $name})
+      MATCH (p2:CodeProject {key: $project})-[:ACCESSES]->(a:MemberAccess {name: $name})
       RETURN 'property' AS access, a.language AS language, a.receiver AS receiver, a.name AS method, [] AS arguments,
              a.enclosing AS caller, a.resolution AS resolution, a.path AS file, a.line AS line, a.url AS url
     }
