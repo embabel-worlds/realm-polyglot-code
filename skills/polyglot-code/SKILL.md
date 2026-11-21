@@ -12,7 +12,7 @@ Pin the project by its key and use the views first; they already span every lang
 | What is this written in? | `ProjectLanguages(project)` |
 | What endpoints does it serve (or call)? | `Routes(project)` |
 | Where is X defined? | `WhereDefined(project, name)` |
-| Who calls X? | `WhoCalls(project, name)` |
+| Who calls or reads X (a method, or a property, field or attribute)? | `WhoCalls(project, name)`; `access` says which |
 | Will pushing this file be refused (literals joined with +, an inline qualified name, a direct file write, a bean or listener to list)? | `PushChecks(project, path)` |
 | What do the backend and frontend share? | `SharedNames(project)` |
 | What does it depend on, really? | `ExternalDependencies(project)` |
