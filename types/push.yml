@@ -11,6 +11,7 @@
     - { anchorLabel: CodeProject, relationship: HAS_PUSH_CHECK, keyField: key, recordKeyField: anchorKey, producer: kotlinPushChecks, maxFanoutTotal: 500000,
         description: "(:CodeProject {key:$project})-[:HAS_PUSH_CHECK]->(c:KotlinPushCheck)" }
   properties:
+    id: { identity: true, description: "The file's id, `#capture:`, the capture name and its extent: unique per captured node." }
     capture: "What it is: concat, concat.literal, qualified."
     nodeType: "The grammar's name for the node."
     text: "Its text, whitespace collapsed, at most 200 characters."
@@ -20,8 +21,8 @@
     match: "The match it is part of: a + and its literal share one."
     enclosingId: "The id of the declaration it is in."
     enclosing: "The name of the declaration it is in."
-    enclosingKind: "That declaration's kind: function, variable, constant, class, …"
+    enclosingKind: "That declaration's kind: function, method, constructor, variable, constant, field, class, object, interface, enum or type; empty at a file's top level."
     path: "Source file, relative to the project."
-    language: "kotlin"
+    language: { values: [kotlin], description: "Always kotlin: the realm reads its push-check query over Kotlin files only." }
     url: "The line on the repository's host, when it has a file view."
     project: "The project as read: the folder, or host/repo@commit."

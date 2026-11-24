@@ -20,8 +20,9 @@
     - { anchorLabel: IndexedProject, relationship: DECLARES, keyField: key, recordKeyField: anchorKey, producer: allDeclarations, maxFanoutTotal: 200000,
         description: "(:IndexedProject {key})-[:DECLARES]->(d:CodeDeclaration): every declaration of the project, in every language tree-sitter reads." }
   properties:
+    id: { identity: true, description: "The file's id, `#`, the kind, name, first line and column: unique per declaration." }
     path: "File path, relative to the project."
-    language: "The language."
+    language: "The language as the source-tree kind spells it, lower case: java, kotlin, typescript, python, go, …"
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host."
     project: "The project as read: host/repo@commit, or the folder."

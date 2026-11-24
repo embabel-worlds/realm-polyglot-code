@@ -3,6 +3,7 @@
 
 - name: RulesHeadroom
   description: >-
+    How much room one file has left under the type, file and method size rules.
     SELECT THIS before adding a class, a method or many lines to a file: "will this still pass the
     size rules", "how much room is left in this package / file", "which methods are near the
     limit". For one file: how many top-level types its package already holds against the cap (counted
@@ -14,8 +15,8 @@
     reaches, so trailing blank lines and comments are not counted. Read from source as written, in
     any language; nothing is compiled.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
-    path: { type: string, description: "The file, relative to the project." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    path: { type: string, required: true, description: "The file, relative to the project." }
     typeCap: { type: int, default: 50, description: "Most top-level types a package may hold." }
     fileCap: { type: int, default: 600, description: "Most lines a file may have." }
     methodCap: { type: int, default: 60, description: "Most lines a method may have." }
@@ -54,6 +55,7 @@
 
 - name: PushChecks
   description: >-
+    What in one file a push is likely to be refused for, line by line.
     SELECT THIS before pushing a change to a file: "will this push be refused", "what will lint or
     the architecture tests object to in this file". For one file, the things a push is commonly
     refused for that no size rule says, each with its line and `verdict`: `refused` (a check that
@@ -67,8 +69,8 @@
     listed. Read from source as written. Not seen: a + of literals inside an annotation or a const val
     (allowed there, and reported here), lint run by other tools, and what a test asserts.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
-    path: { type: string, description: "The file, relative to the project." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    path: { type: string, required: true, description: "The file, relative to the project." }
   cypher: |
     CALL {
       /* Literals joined with +: every link of a left-nested chain starts where the chain does, so a chain is its start. */
@@ -110,6 +112,7 @@
 
 - name: TestsFor
   description: >-
+    The test files that exercise one type, and the command that runs each.
     SELECT THIS after changing a type, to run only what exercises it: "which tests cover Foo",
     "how do I run the tests for this class". In any language: the test files that import the name or
     are named for it (FooTest, foo_test.go, foo.test.ts, test_foo.py), each with `why` it was
@@ -123,8 +126,8 @@
     name from source as written: a test that reaches the type only through another type is not
     found, and a type of the same simple name elsewhere is not told apart.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
-    type: { type: string, description: "The type's simple name, e.g. OwnerController." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    type: { type: string, required: true, description: "The type's simple name, case as declared (OwnerController). Matched by suffix: an import ending in .OwnerController or /OwnerController counts; test files are matched by name, ignoring case." }
     tagIsProfile: { type: boolean, default: false, description: "True when the build runs a tagged test only under the Maven profile named for its tag." }
   cypher: |
     MATCH (p:CodeProject {key: $project})

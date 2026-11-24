@@ -1,5 +1,8 @@
 # Kotlin's push checks, with the realm's own tree-sitter query (queries/kotlin-push.scm): one row per
 # captured literal joined with + and per inline qualified name, each naming the declaration it is in.
 # Kept in the graph for the revision read, so a second question about the same commit reads no file.
+# `validFor: revision` is honoured on a source-tree producer that reads a project (it reports the
+# commit, or a folder's listing digest, as its revision); an audit that says `kind: graph` is read as
+# none on this kind predates kept records, and is wrong here.
 - { name: kotlinPushChecks, kind: source-tree, emit: captures, languages: [kotlin], query: queries/kotlin-push.scm,
     cache: { kind: graph, validFor: revision } }

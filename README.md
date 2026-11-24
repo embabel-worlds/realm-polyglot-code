@@ -62,5 +62,8 @@ SharedNames(project: 'https://github.com/fastapi/full-stack-fastapi-template')
 
 `tools/generate.py` writes the per-language types and producers; edit it, not them.
 
+`tests/verify.sh` (APPLIANCE, AUTH) runs every view by name and reconciles the figures with
+spring-petclinic at a pinned commit, read with git; it ends `ALL CHECKS PASS`.
+
 Calls are matched by name and say so (`resolution: name`). Requires the appliance's
 `source-tree` producer kind. Apache-2.0.

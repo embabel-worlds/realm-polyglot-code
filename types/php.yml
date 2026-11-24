@@ -9,6 +9,7 @@
     - { anchorLabel: CodeProject, relationship: HAS_SOURCE, keyField: key, recordKeyField: anchorKey, producer: phpFiles, maxFanoutTotal: 200000,
         description: "(:CodeProject {key:$project})-[:HAS_SOURCE]->(x:PhpSource)" }
   properties:
+    id: { identity: true, description: "The project as read, `!`, the file's path: unique per file and commit." }
     path: "File path, relative to the project."
     language: "The language, as the producer names it."
     line: { type: int, description: "Line it is on." }
@@ -26,6 +27,7 @@
     - { anchorLabel: CodeProject, relationship: DECLARES, keyField: key, recordKeyField: anchorKey, producer: phpDeclarations, maxFanoutTotal: 200000,
         description: "(:CodeProject {key:$project})-[:DECLARES]->(x:PhpDeclaration)" }
   properties:
+    id: { identity: true, description: "The file's id, `#`, the kind, name, first line and column: unique per declaration." }
     path: "File path, relative to the project."
     language: "The language, as the producer names it."
     line: { type: int, description: "Line it is on." }
@@ -41,6 +43,7 @@
     - { anchorLabel: CodeProject, relationship: IMPORTS, keyField: key, recordKeyField: anchorKey, producer: phpImports, maxFanoutTotal: 200000,
         description: "(:CodeProject {key:$project})-[:IMPORTS]->(x:PhpImport)" }
   properties:
+    id: { identity: true, description: "The file's id, `#import@`, line and column: unique per import." }
     path: "File path, relative to the project."
     language: "The language, as the producer names it."
     line: { type: int, description: "Line it is on." }
@@ -56,6 +59,7 @@
     - { anchorLabel: CodeProject, relationship: CALLS, keyField: key, recordKeyField: anchorKey, producer: phpCalls, maxFanoutTotal: 200000,
         description: "(:CodeProject {key:$project})-[:CALLS]->(x:PhpCall)" }
   properties:
+    id: { identity: true, description: "The file's id, `#call@`, line and column of the called name: each call of a chain has its own." }
     path: "File path, relative to the project."
     language: "The language, as the producer names it."
     line: { type: int, description: "Line it is on." }
@@ -71,6 +75,7 @@
     - { anchorLabel: CodeProject, relationship: REFERENCES, keyField: key, recordKeyField: anchorKey, producer: phpReferences, maxFanoutTotal: 200000,
         description: "(:CodeProject {key:$project})-[:REFERENCES]->(x:PhpReference)" }
   properties:
+    id: { identity: true, description: "The file's id, `#ref:`, the name, line and column: unique per use." }
     path: "File path, relative to the project."
     language: "The language, as the producer names it."
     line: { type: int, description: "Line it is on." }
