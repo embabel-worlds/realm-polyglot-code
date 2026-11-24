@@ -21,8 +21,13 @@ description: |
   mounted. Nothing is ingested and nothing is stored: a commit is read once and kept; a folder is
   read afresh. Calls outside Java are matched by name (`resolution: name`), and say so. Requires the
   appliance's `source-tree` producer kind.
-version: 0.1.0
+version: 0.1.1
 maturity: experimental
 realmLabel: PolyglotCode
+# Every language's sources, declarations, imports and calls are children of code-model's parents
+# (Source, SourceDeclaration, CallSite, ...). Undeclared, a fresh world installed this realm with 78
+# unresolvable parents and its types cut loose from them.
+requires:
+  code-model: "[0.1.0,1.0.0)"
 author: Embabel
 tags: [code, source, typescript, python, go, rust, csharp, kotlin, java, polyglot, tree-sitter]
