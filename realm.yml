@@ -24,5 +24,10 @@ description: |
 version: 0.1.2
 maturity: experimental
 realmLabel: PolyglotCode
+# Every language's sources, declarations, imports and calls are children of code-model's parents
+# (Source, SourceDeclaration, CallSite, ...). Undeclared, a fresh world installs this realm with its
+# types' parents unresolvable.
+requires:
+  code-model: "[0.1.0,1.0.0)"
 author: Embabel
 tags: [code, source, typescript, python, go, rust, csharp, kotlin, java, polyglot, tree-sitter]
