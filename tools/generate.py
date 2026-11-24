@@ -23,6 +23,17 @@ COMMON = {
     "project": '"The project as read: the folder, or host/repo@commit."',
 }
 
+# Each row's `id`, as the source-tree kind writes it: the file's id (the project as read, `!`, the path),
+# then what makes the row unique in that file. The same id realm-code-model's parents declare.
+IDS = {
+    "Source": "The project as read, `!`, the file's path: unique per file and commit.",
+    "Declaration": "The file's id, `#`, the kind, name, first line and column: unique per declaration.",
+    "Import": "The file's id, `#import@`, line and column: unique per import.",
+    "Call": "The file's id, `#call@`, line and column of the called name: each call of a chain has its own.",
+    "Reference": "The file's id, `#ref:`, the name, line and column: unique per use.",
+    "Access": "The file's id, `#access@`, line and column: unique per access.",
+}
+
 KINDS = [
     # suffix, emit, relationship, parent, extra properties, description
     ("Source", "files", "HAS_SOURCE", "Source",
@@ -55,7 +66,8 @@ for label, lang, prose in LANGUAGES:
         name = f"{label}{suffix}"
         producer = producer_name(lang, emit)
         producers.append(f"- {{ name: {producer}, kind: source-tree, emit: {emit}, languages: [{lang}] }}")
-        props = "\n".join(f"    {k}: {v}" for k, v in {**COMMON, **extra}.items())
+        ident = {"id": f'{{ identity: true, description: "{IDS[suffix]}" }}'}
+        props = "\n".join(f"    {k}: {v}" for k, v in {**ident, **COMMON, **extra}.items())
         types.append(f"""- name: {name}
   parents: [{parent}]
   visibility: internal

@@ -1,12 +1,12 @@
 - name: RouteStyle
   userAnchor: false
-  description: "How a web framework declares a route, as data (reference/route-styles.yml): an annotation, decorator or attribute whose text contains `pattern` (shape annotation), or a call named `pattern` on one of `receivers` with a path first (shape call), in one of `languages`. The Routes view joins these to a project's declarations and calls."
+  description: "One way a web framework declares a route, identified by styleId, as data (reference/route-styles.yml): an annotation, decorator or attribute whose text contains `pattern` (shape annotation), or a call named `pattern` on one of `receivers` with a path first (shape call), in one of `languages`. The Routes view joins these to a project's declarations and calls."
   properties:
-    styleId: { identity: true, description: "The style." }
+    styleId: { identity: true, description: "The style's own name in reference/route-styles.yml, unique there (spring-get, express-get)." }
     framework: "The framework or library, for display."
     languages: { cardinality: LIST, description: "Languages it applies to, as the producers name them." }
-    shape: "annotation or call."
+    shape: { values: [annotation, call], description: "annotation: matched in a declaration's annotations as written; call: matched against calls by name." }
     pattern: "annotation: a lower-case piece of the annotation as written; call: the called name, exact."
     receivers: { cardinality: LIST, description: "call: what it may be called on; empty for anything, [\"\"] for nothing." }
-    method: "GET, POST, PUT, DELETE, PATCH, ANY, or CLIENT for a call to another service."
-    role: "route, prefix, resource or client."
+    method: { values: [GET, POST, PUT, DELETE, PATCH, ANY, CLIENT], description: "The HTTP method, upper case; ANY when the declaration does not say; CLIENT for a call this code makes to another service." }
+    role: { values: [route, prefix, resource, client], description: "route: an endpoint served; prefix: a path routes sit under; resource: a whole REST resource; client: a call to another service." }

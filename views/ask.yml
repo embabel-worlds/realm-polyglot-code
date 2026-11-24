@@ -30,12 +30,13 @@
 
 - name: IndexState
   description: >-
+    Whether a project is indexed for search, and how many declarations it holds.
     How much of a project the code index holds: whether it is an IndexedProject, how many of its
     declarations are held as searchable documents (`indexed`), and when the last was indexed (epoch ms).
     Search by meaning sees only what is indexed; MatchDeclarations reads every declaration live. The
     code-declarations source's progress, when a run is under way, is in the realm's status.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     OPTIONAL MATCH (ip:IndexedProject {key: $project})
     WITH ip IS NOT NULL AS registered
@@ -45,6 +46,7 @@
 
 - name: MatchDeclarations
   description: >-
+    Declarations whose names hold a question's words, read live, best first.
     The declarations of an indexed project whose names hold a question's words, read live from the source
     tree — no embeddings, so it answers the moment a project is indexed, before any document exists.
     `terms` is the question's words, lower case, space separated, already stemmed ('security
@@ -56,8 +58,8 @@
     configuration'; test code ranks below the code it tests. Best first, with the same `id` SearchCode
     returns. Code that holds the words but is not named for them is SearchCode's to find.
   params:
-    project: { type: string, description: "Project key, as it was indexed." }
-    terms: { type: string, description: "Lower-case words, space separated (stems are fine: 'authenticat')." }
+    project: { type: string, required: true, description: "Project key, as it was indexed." }
+    terms: { type: string, required: true, description: "Lower-case words, space separated (stems are fine: 'authenticat')." }
   cypher: |
     MATCH (ip:IndexedProject {key: $project})-[:DECLARES]->(d:CodeDeclaration)
     WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'object', 'type', 'function', 'method', 'constructor']
@@ -88,6 +90,7 @@
 
 - name: AskContext
   description: >-
+    What given declarations are: code, signature, doc, callers and callees.
     Declarations of an indexed project by id ('|' between ids), each with what an explanation needs:
     its signature, annotations and doc; its code (a function's lines, numbered; a type's members, up to
     about 4,000 characters); the functions and methods elsewhere that call it or use the type
@@ -98,8 +101,8 @@
     names and the declarations their code names: a second or later declaration of one name in a file
     that a caller shares with one that does not mention the name may then carry the first's id.
   params:
-    project: { type: string, description: "Project key, as it was indexed." }
-    ids: { type: string, description: "Declaration ids (as SearchCode, MatchDeclarations or a citation give them), '|' between them." }
+    project: { type: string, required: true, description: "Project key, as it was indexed." }
+    ids: { type: string, required: true, description: "Declaration ids (as SearchCode, MatchDeclarations or a citation give them), '|' between them." }
     names: { type: string, default: "", description: "The ids' own names ('|' between them: jwtDecoder|SecurityConfiguration), to read only the code that mentions them for callers. Empty reads every declaration: right, but slow on a large project." }
     calls: { type: string, default: "", description: "The identifiers their code holds ('|' between them; Declarations gives the code), to read only declarations of those names for callees. Empty reads every declaration." }
     tests: { type: string, default: "yes", description: "'no' when none of the ids is test code: callers and callees are then read from outside test code only, as they are counted. 'yes' reads test code too." }
@@ -164,6 +167,7 @@
 
 - name: AnswerFromCode
   description: >-
+    An answer to a question about a project, written from the code given by id.
     An answer to a question about an indexed project, written from its code: the declarations given
     (ids, '|' between them, best first) are numbered [1], [2], … in that order, each handed to the model
     with its signature, annotations, doc, code (more for the first three) and the names of what calls it
@@ -175,9 +179,9 @@
     not shown. Find the ids with MatchDeclarations and SearchCode, and their code with Declarations;
     pass `names` and `calls` to read only what the answer needs (as AskContext does).
   params:
-    project: { type: string, description: "Project key, as it was indexed." }
-    question: { type: string, description: "The question, in words." }
-    ids: { type: string, description: "Declaration ids, best first, '|' between them (at most about 10)." }
+    project: { type: string, required: true, description: "Project key, as it was indexed." }
+    question: { type: string, required: true, description: "The question, in words." }
+    ids: { type: string, required: true, description: "Declaration ids, best first, '|' between them (at most about 10)." }
     names: { type: string, default: "", description: "The ids' own names ('|' between them: jwtDecoder|SecurityConfiguration), to read only the code that mentions them for callers. Empty reads every declaration: right, but slow on a large project." }
     calls: { type: string, default: "", description: "The identifiers their code holds ('|' between them; Declarations gives the code), to read only declarations of those names for callees. Empty reads every declaration." }
     tests: { type: string, default: "yes", description: "'no' when none of the ids is test code: callers and callees are then read from outside test code only, as they are counted. 'yes' reads test code too." }

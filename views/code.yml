@@ -7,13 +7,14 @@
     What a project is written in: files, lines and syntax errors per language. The first question to
     ask of an unfamiliar repository.
   params:
-    project: { type: string, description: "Project key: a repository URL (optionally @ref) or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL (optionally @ref) or a folder." }
   cypher: |
     MATCH (p:CodeProject {key: $project})-[:HAS_SOURCE]->(s:Source)
     RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines, sum(coalesce(s.errors, 0)) AS syntaxErrors
 
 - name: Routes
   description: >-
+    Every HTTP endpoint a project declares, in any language and framework.
     Every HTTP endpoint a project declares, whatever its language and framework: Spring and Kotlin
     mappings, ASP.NET attributes, NestJS and FastAPI decorators, Rocket attributes, Express, Gin and
     Laravel router calls, Django URL patterns, Rails resources — with the method, the path, the
@@ -25,7 +26,7 @@
     one row for the REST resource it declares. Only calls named like a route style's call are read,
     so a project's other calls cost nothing here.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
     WHERE size(d.annotationText) > 0
@@ -59,11 +60,13 @@
 
 - name: WhereDefined
   description: >-
+    Where a name is declared, in every language of a project.
     Where a name is declared, in every language: a class, function, method, field or constant called
     exactly this, with its kind, owner, signature, doc and line.
+    Exact name only, and declarations only; for its uses, WhoUses or WhoCalls.
   params:
-    project: { type: string, description: "Project key." }
-    name: { type: string, description: "The name, exactly as declared (case matters)." }
+    project: { type: string, required: true, description: "Project key." }
+    name: { type: string, required: true, description: "The name, exactly as declared (case matters)." }
   cypher: |
     MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration {name: $name})
     RETURN d.language AS language, d.kind AS kind, d.owner AS owner, d.name AS name, d.signature AS signature,
@@ -71,6 +74,7 @@
 
 - name: WhoCalls
   description: >-
+    Every call to a name, and every property use of it, in any language.
     Every use of a name, in every language a project is written in tree-sitter reads: each call to
     it, with what it is called on, its arguments and the function it is in, and (in Kotlin, Java,
     TypeScript, JavaScript and Python) each time it is named on a receiver without being called, a
@@ -78,8 +82,8 @@
     'name'): this is every use of something called that, not proof of which one — the receiver says
     more. A Kotlin property is used by access, so a name with no calls may still be used.
   params:
-    project: { type: string, description: "Project key." }
-    name: { type: string, description: "The name, exactly (e.g. save, get, fetchUser, status)." }
+    project: { type: string, required: true, description: "Project key." }
+    name: { type: string, required: true, description: "The name, exactly (e.g. save, get, fetchUser, status)." }
   cypher: |
     CALL {
       MATCH (p1:CodeProject {key: $project})-[:CALLS]->(c:CallSite {method: $name})
@@ -95,11 +99,12 @@
 
 - name: SharedNames
   description: >-
+    Names declared in more than one language of one project.
     Names declared in more than one language of the same project — the vocabulary a backend and its
     frontend share (an Item model in Python and an Item interface in TypeScript), or code ported
     from one language to another. Types, functions and methods only.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
     WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'type', 'protocol', 'function', 'method', 'object']
@@ -111,11 +116,12 @@
 
 - name: ExternalDependencies
   description: >-
+    What a project imports from outside itself, per language, by file count.
     What a project imports from outside itself, per language: every module, package or header its
     files import that is not a relative path, with how many files import it. The dependencies that
     matter are the ones the code actually uses.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:CodeProject {key: $project})-[:IMPORTS]->(i:SourceImport)
     WHERE i.imported <> '' AND NOT i.imported STARTS WITH '.' AND NOT i.imported STARTS WITH '/'
@@ -124,10 +130,12 @@
 
 - name: DocCoverage
   description: >-
+    How much of a project carries doc comments, per language and kind.
     How much of a project is documented, per language and kind: declarations of types, functions and
     methods, and how many carry a doc comment or docstring.
+    Fields, variables and constants are not counted.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
     WHERE d.kind IN ['class', 'interface', 'struct', 'enum', 'trait', 'record', 'protocol', 'function', 'method', 'constructor']
@@ -137,10 +145,11 @@
 
 - name: LargestFunctions
   description: >-
+    The 25 longest functions and methods in a project, in every language.
     The longest functions and methods in a project, in every language — where complexity lives, and
     the first candidates to split.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
     WHERE d.kind IN ['function', 'method', 'constructor']

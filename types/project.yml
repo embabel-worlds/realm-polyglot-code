@@ -25,6 +25,28 @@
   description: "A code project in any language, named by its key: a repository URL, optionally @ref (`https://github.com/acme/shop@v2`), or a folder (under the world's data/, or in the owner's mounted workspace). Pin it — (:CodeProject {key: $project}) — and every hop reads it when the query reaches it. Nothing about it is stored."
   properties:
     key: { identity: true, description: "The project key, exactly as given." }
+  examples:
+    - q: "What is this repository written in?"
+      cypher: |
+        MATCH (p:CodeProject {key: 'https://github.com/acme/shop'})-[:HAS_SOURCE]->(s:Source)
+        RETURN s.language AS language, count(s) AS files, sum(s.lines) AS lines
+    - q: "Where is Order defined, in any language?"
+      cypher: |
+        MATCH (p:CodeProject {key: 'https://github.com/acme/shop'})-[:DECLARES]->(d:SourceDeclaration {name: 'Order'})
+        RETURN d.language, d.kind, d.owner, d.path, d.fromLine
+    - q: "Who calls something named save? (matched by name, not resolved)"
+      cypher: |
+        MATCH (p:CodeProject {key: 'https://github.com/acme/shop'})-[:CALLS]->(c:CallSite {method: 'save'})
+        RETURN c.language, c.receiver, c.enclosing, c.path, c.line
+    - q: "What does the Python code import from outside the project?"
+      cypher: |
+        MATCH (p:CodeProject {key: 'https://github.com/acme/shop'})-[:IMPORTS]->(i:PythonImport)
+        WHERE NOT i.imported STARTS WITH '.'
+        RETURN i.imported, count(DISTINCT i.path) AS files ORDER BY files DESC
+    - q: "Which Java types does OrderService extend or implement, by binary name?"
+      cypher: |
+        MATCH (p:CodeProject {key: 'https://github.com/acme/shop'})-[:DECLARES_TYPE]->(t:JavaCodeType {simpleName: 'OrderService'})
+        RETURN t.name, t.extends, t.implements, t.path, t.line
 
 - name: JavaCodeType
   parents: [CodeType]
@@ -35,6 +57,7 @@
     - { anchorLabel: CodeProject, relationship: DECLARES_TYPE, keyField: key, recordKeyField: anchorKey, producer: javaTypes, maxFanoutTotal: 200000,
         description: "(:CodeProject {key:$project})-[:DECLARES_TYPE]->(t:JavaCodeType)" }
   properties:
+    id: { identity: true, description: "The project as read, `!`, the type's key in the file: unique per type and commit." }
     simpleName: "The name without package or enclosing type."
     extends: { cardinality: LIST, description: "Supertype, resolved." }
     implements: { cardinality: LIST, description: "Interfaces it implements, resolved." }
@@ -43,7 +66,7 @@
     modifiers: { cardinality: LIST, description: "public, abstract, final, …" }
     path: "Source file, relative to the project."
     line: { type: int, description: "Line it is declared on." }
-    lastLine: { type: int, description: "Its last line." }
+    lastLine: { type: int, description: "The line its closing brace is on, so line..lastLine is the whole type, members included." }
     url: "The line on the repository's host, when it has one."
     project: "The project as read: the folder, or host/repo@commit."
 
@@ -55,12 +78,13 @@
     - { anchorLabel: CodeProject, relationship: DECLARES_MEMBER, keyField: key, recordKeyField: anchorKey, producer: javaMembers, maxFanoutTotal: 200000,
         description: "(:CodeProject {key:$project})-[:DECLARES_MEMBER]->(m:JavaCodeMember)" }
   properties:
+    id: { identity: true, description: "The project as read, `!`, the member's key in the file: unique per member and commit." }
     modifiers: { cardinality: LIST, description: "public, static, final, …" }
     returnType: "A method's return type, resolved."
     parameters: { cardinality: LIST, description: "Each parameter, type and name." }
-    type: "A field's type, resolved."
+    type: "A field's declared Java type, resolved to its binary name where the file shows it (java.util.List); empty on a method or constructor."
     path: "Source file, relative to the project."
-    language: "java"
+    language: { values: [java], description: "Always java: these rows come from the Java-only types and members emits." }
     line: { type: int, description: "Line it is declared on." }
     url: "The line on the repository's host, when it has one."
     project: "The project as read: the folder, or host/repo@commit."
