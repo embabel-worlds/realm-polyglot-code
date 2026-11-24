@@ -166,3 +166,22 @@
                 ELSE '' END AS command,
            t.language AS language, path, t.fromLine AS line
     ORDER BY size(tags), test LIMIT 200
+
+- name: FileDeclarations
+  description: >-
+    SELECT THIS to see what one file declares, with each declaration's signature and lines: "what does
+    this file declare", "what are the signatures in this file", "which declaration covers line N". Every
+    class, interface, function, method, constructor and field of the file, in any language, in line
+    order: `kind`, `owner` (the type it is a member of; empty at the top level), `name`, `signature` as
+    written, and `fromLine`/`toLine`. Read from the source as it is now — for a folder project, the
+    working tree as last saved — so reading it before and after an edit says which signatures the edit
+    changed. Nothing is compiled; a name is the name as written.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    path: { type: string, description: "The file, relative to the project." }
+  cypher: |
+    MATCH (p:CodeProject {key: $project})-[:DECLARES]->(d:SourceDeclaration)
+    WHERE d.path = $path
+    RETURN d.kind AS kind, coalesce(d.owner, '') AS owner, d.name AS name, d.signature AS signature,
+           d.fromLine AS fromLine, d.toLine AS toLine
+    ORDER BY fromLine, name
