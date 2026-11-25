@@ -21,7 +21,7 @@ description: |
   mounted. Nothing is ingested and nothing is stored: a commit is read once and kept; a folder is
   read afresh. Calls outside Java are matched by name (`resolution: name`), and say so. Requires the
   appliance's `source-tree` producer kind.
-version: 0.1.2
+version: 0.1.3
 maturity: experimental
 realmLabel: PolyglotCode
 # Every language's sources, declarations, imports and calls are children of code-model's parents
